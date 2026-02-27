@@ -1,2 +1,2 @@
 bundles:
-    - { name: Kenzi\OroCommerceBundle\KenziOroCommerceBundle, priority: 70 }
+    - { name: Kenzi\OroCommerceBundle\KenziOroCommerceBundle, priority: 200 }

@@ -1,0 +1,59 @@
+system_configuration:
+    groups:
+        kenzi:
+            title: kenzi_oro_commerce.system_configuration.groups.kenzi.title
+            icon: fa-comments
+            priority: 100
+        kenzi_connection:
+            title: kenzi_oro_commerce.system_configuration.groups.kenzi_connection.title
+            priority: 10
+        kenzi_connection_general:
+            title: kenzi_oro_commerce.system_configuration.groups.kenzi_connection_general.title
+
+    fields:
+        kenzi_oro_commerce.widget_enabled:
+            data_type: boolean
+            type: Symfony\Component\Form\Extension\Core\Type\CheckboxType
+            priority: 20
+            options:
+                label: kenzi_oro_commerce.system_configuration.fields.widget_enabled.label
+                tooltip: kenzi_oro_commerce.system_configuration.fields.widget_enabled.tooltip
+                required: false
+        kenzi_oro_commerce.webhook_url:
+            data_type: string
+            type: Symfony\Component\Form\Extension\Core\Type\TextType
+            priority: 10
+            options:
+                label: kenzi_oro_commerce.system_configuration.fields.webhook_url.label
+                tooltip: kenzi_oro_commerce.system_configuration.fields.webhook_url.tooltip
+
+    tree:
+        system_configuration:
+            commerce:
+                children:
+                    kenzi:
+                        priority: 1000
+                        children:
+                            kenzi_connection:
+                                children:
+                                    kenzi_connection_general:
+                                        children:
+                                            - kenzi_oro_commerce.widget_enabled
+                                            - kenzi_oro_commerce.webhook_url
+        website_configuration:
+            commerce:
+                children:
+                    kenzi:
+                        priority: 1000
+                        children:
+                            kenzi_connection:
+                                children:
+                                    kenzi_connection_general:
+                                        children:
+                                            - kenzi_oro_commerce.widget_enabled
+                                            - kenzi_oro_commerce.widget_base_url
+                                            - kenzi_oro_commerce.workspace_id
+                                            - kenzi_oro_commerce.sync_enabled
+                                            - kenzi_oro_commerce.webhook_secret
+                                            - kenzi_oro_commerce.store_key
+                                            - kenzi_oro_commerce.connected_at

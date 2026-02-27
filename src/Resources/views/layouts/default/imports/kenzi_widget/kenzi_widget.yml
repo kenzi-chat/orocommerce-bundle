@@ -1,0 +1,14 @@
+layout:
+    actions:
+        - '@setBlockTheme':
+            themes: 'kenzi_widget.html.twig'
+        - '@add':
+            id: __kenzi_widget_script
+            parentId: __root
+            prepend: false
+            blockType: block
+            options:
+                visible: '=data["kenzi_widget"].isWidgetEnabled()'
+                vars:
+                    widgetBaseUrl: '=data["kenzi_widget"].getWidgetBaseUrl()'
+                    workspaceId: '=data["kenzi_widget"].getWorkspaceId()'

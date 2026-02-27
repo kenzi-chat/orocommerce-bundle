@@ -1,9 +1,10 @@
 {
-    "name": "kenzi/kenzi-orocommerce-bundle",
+    "name": "kenzi/orocommerce-bundle",
     "description": "Connect your OroCommerce store to Kenzi for customer messaging powered by real-time order and customer data.",
+    "keywords": ["Kenzi", "OroCommerce", "Chat", "Widget"],
     "type": "symfony-bundle",
     "license": "MIT",
-    "homepage": "https://kenzi.chat/integrations/orocommerce",
+    "homepage": "https://www.kenzi.chat/",
     "authors": [
         {
             "name": "Kenzi",
@@ -12,32 +13,52 @@
     ],
     "require": {
         "php": ">=8.1",
-        "symfony/framework-bundle": "~6.3.0 || ~6.4.0 || ~7.4.0"
+        "oro/commerce": "6.1.*"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.65",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-symfony": "^2.0",
-        "phpunit/phpunit": "^11.0"
+        "phpunit/phpunit": "~9.5.28"
     },
     "autoload": {
         "psr-4": {
             "Kenzi\\OroCommerceBundle\\": "src/"
-        }
+        },
+        "exclude-from-classmap": ["**/Tests/"]
     },
     "autoload-dev": {
         "psr-4": {
             "Kenzi\\OroCommerceBundle\\Tests\\": "tests/"
         }
     },
+    "repositories": {
+        "oro": {
+            "type": "composer",
+            "url": "https://packagist.oroinc.com"
+        }
+    },
     "config": {
         "sort-packages": true,
-        "preferred-install": "dist"
+        "preferred-install": "dist",
+        "audit": {
+            "ignore": {
+                "PKSA-z3gr-8qht-p93v": "PHPUnit PHPT deserialization — dev-only, no PHPT tests used",
+                "PKSA-csyb-yc4p-mnbs": "nesbot/carbon — transitive Oro dep, not used by bundle"
+            }
+        },
+        "allow-plugins": {
+            "symfony/runtime": false,
+            "symfony/flex": false,
+            "php-http/discovery": false
+        }
     },
     "scripts": {
         "lint": "php-cs-fixer fix --dry-run --diff",
         "lint:fix": "php-cs-fixer fix",
         "analyze": "phpstan analyse",
         "test": "phpunit"
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }

@@ -1,1 +1,7 @@
-services: ~
+services:
+    kenzi_oro_commerce.layout.data_provider.widget:
+        class: Kenzi\OroCommerceBundle\Layout\DataProvider\WidgetDataProvider
+        arguments:
+            - '@oro_config.manager'
+        tags:
+            - { name: layout.data_provider, alias: kenzi_widget }

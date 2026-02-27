@@ -1,0 +1,16 @@
+kenzi_oro_commerce:
+    system_configuration:
+        groups:
+            kenzi:
+                title: 'Kenzi Chat'
+            kenzi_connection:
+                title: 'Connection'
+            kenzi_connection_general:
+                title: 'General'
+        fields:
+            widget_enabled:
+                label: 'Enable Chat Widget'
+                tooltip: 'Show the Kenzi chat widget on the storefront. The store must be connected to Kenzi for the widget to appear.'
+            webhook_url:
+                label: 'Webhook URL'
+                tooltip: 'The Kenzi endpoint that receives order event webhooks. Only change this if using a non-production Kenzi instance.'
