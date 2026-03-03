@@ -2,11 +2,12 @@
 
 ## Overview
 
-Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capability:
+Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capabilities:
 
 1. **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
+2. **Order Payload Serializer** — Converts OroCommerce Order entities into the JSON payload structure defined by the Kenzi webhook contract
 
-Commerce webhook dispatching (entity listeners, HMAC signing) will be added in later implementation tasks.
+Entity listeners (dispatching webhooks on order events) and HMAC signing will be added in later implementation tasks.
 
 ## Installation
 
@@ -72,6 +73,7 @@ This dual-tree pattern matches Oro's own bundles (TaxBundle, CustomerBundle, Coo
 src/
 ├── DependencyInjection/       # Config tree + extension loader
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
+├── Serializer/                # Order → webhook payload conversion
 ├── Resources/
 │   ├── config/
 │   │   ├── oro/               # bundles.yml, system_configuration.yml
@@ -80,6 +82,33 @@ src/
 │   └── views/layouts/         # Twig layout for widget injection
 └── KenziOroCommerceBundle.php
 ```
+
+### Order Payload Serializer
+
+`OrderPayloadSerializer` converts an `Order` entity into the JSON structure expected by the Kenzi webhook endpoint. The top-level envelope:
+
+```json
+{
+  "event": "order.created",
+  "timestamp": 1709500000,
+  "data": { /* serialized order */ }
+}
+```
+
+Key behaviors:
+
+- **Money formatting** — `formatMoney()` normalizes all monetary values to 2-decimal strings (e.g. `"49.99"`) or `null`
+- **Status resolution** — `resolveStatus()` reads `Order::getInternalStatus()->getId()`, falling back to `"unknown"` when the internal status is null
+- **Nullable associations** — `customer`, `customer_user`, `billing_address`, `shipping_address` are omitted from the payload when null (not sent as `null` keys)
+- **Collections** — `line_items` and `shipping_trackings` are always present as arrays (empty if none)
+- **Timestamps** — All date fields use ISO 8601 format (`'c'`)
+
+Design decisions:
+
+- **`price_type` is passed as Oro's raw integer** (e.g. `10` = unit, `20` = bundled) rather than mapped to human-readable strings. The serializer is a transport layer — it faithfully relays what Oro stores. Mapping here would be fragile if Oro adds new price types in future versions. The webhook consumer (Kenzi backend) interprets these values instead.
+- **`event` parameter is not validated at runtime** — the `@param non-empty-string` annotation is enforced statically by PHPStan. The caller is always an internal entity listener passing known event strings (`order.created`, `order.updated`, etc.), not user input. Runtime validation would be defensive programming against internal code.
+
+The service is registered manually in `services.yml` as `kenzi_oro_commerce.serializer.order_payload` (no autowiring — follows Oro bundle convention).
 
 ### Widget Injection Flow
 

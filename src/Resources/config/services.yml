@@ -5,3 +5,6 @@ services:
             - '@oro_config.manager'
         tags:
             - { name: layout.data_provider, alias: kenzi_widget }
+
+    kenzi_oro_commerce.serializer.order_payload:
+        class: Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer
