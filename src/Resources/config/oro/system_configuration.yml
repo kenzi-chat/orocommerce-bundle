@@ -54,6 +54,6 @@ system_configuration:
                                             - kenzi_oro_commerce.widget_base_url
                                             - kenzi_oro_commerce.workspace_id
                                             - kenzi_oro_commerce.sync_enabled
-                                            - kenzi_oro_commerce.webhook_secret
+                                            - kenzi_oro_commerce.secret
                                             - kenzi_oro_commerce.store_key
                                             - kenzi_oro_commerce.connected_at

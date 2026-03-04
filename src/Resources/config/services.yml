@@ -8,3 +8,12 @@ services:
 
     kenzi_oro_commerce.serializer.order_payload:
         class: Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer
+
+    kenzi_oro_commerce.webhook.dispatcher:
+        class: Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher
+        arguments:
+            $httpClient: '@http_client'
+            $configManager: '@oro_config.manager'
+            $logger: '@logger'
+        tags:
+            - { name: monolog.logger, channel: kenzi_oro_commerce }

@@ -6,8 +6,9 @@ Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi C
 
 1. **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
 2. **Order Payload Serializer** — Converts OroCommerce Order entities into the JSON payload structure defined by the Kenzi webhook contract
+3. **Webhook Dispatcher** — Signs payloads with HMAC-SHA256 and dispatches them to the Kenzi webhook endpoint with all required headers
 
-Entity listeners (dispatching webhooks on order events) and HMAC signing will be added in later implementation tasks.
+Entity listeners (dispatching webhooks on order events) will be added in later implementation tasks.
 
 ## Installation
 
@@ -37,7 +38,7 @@ All settings are managed through OroCommerce System Configuration (Commerce > Ke
 | Widget Script URL | `widget_base_url` | Website | `""` | Base URL for widget loader |
 | Workspace ID | `workspace_id` | Website | `""` | Kenzi workspace identifier appended as `?w=` param |
 | Enable Sync | `sync_enabled` | Website | `false` | Enable entity webhook dispatching |
-| Webhook Secret | `webhook_secret` | Website | `""` | HMAC-SHA256 shared secret |
+| Secret | `secret` | Website | `""` | HMAC-SHA256 shared secret |
 | Store Key | `store_key` | Website | `""` | Identifies this OroCommerce website to Kenzi |
 | Connected At | `connected_at` | Website | `""` | Timestamp of initial connection |
 
@@ -74,6 +75,7 @@ src/
 ├── DependencyInjection/       # Config tree + extension loader
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
 ├── Serializer/                # Order → webhook payload conversion
+├── Webhook/                   # HMAC signing + HTTP dispatch to Kenzi
 ├── Resources/
 │   ├── config/
 │   │   ├── oro/               # bundles.yml, system_configuration.yml
@@ -109,6 +111,28 @@ Design decisions:
 - **`event` parameter is not validated at runtime** — the `@param non-empty-string` annotation is enforced statically by PHPStan. The caller is always an internal entity listener passing known event strings (`order.created`, `order.updated`, etc.), not user input. Runtime validation would be defensive programming against internal code.
 
 The service is registered manually in `services.yml` as `kenzi_oro_commerce.serializer.order_payload` (no autowiring — follows Oro bundle convention).
+
+### Webhook Dispatcher
+
+`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It reads all configuration scoped to the order's Website.
+
+**Dispatch flow:**
+
+1. Check `sync_enabled` — return `false` if disabled
+2. Read `webhook_url`, `secret`, `store_key` — return `false` if any are empty
+3. JSON-encode payload with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR`
+4. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $secret, true))` — raw binary output, then base64
+5. Generate unique delivery ID (`Uuid::v4`) and current Unix timestamp
+6. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-store-key`, `x-kenzi-event`
+
+**Critical invariants:**
+
+- The JSON body sent in the HTTP request is the exact same bytes used for HMAC computation (encode once, use for both)
+- Timestamp is `time()` at dispatch time, NOT the order creation time (Kenzi rejects timestamps > 5 min old)
+- Each dispatch generates a fresh UUID delivery ID (Kenzi deduplicates by delivery ID)
+- The `sign()` helper uses `hash_hmac(..., true)` for raw binary, NOT hex encoding
+
+The service is registered as `kenzi_oro_commerce.webhook.dispatcher` with the `kenzi_oro_commerce` monolog channel.
 
 ### Widget Injection Flow
 

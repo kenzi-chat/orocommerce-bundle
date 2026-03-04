@@ -90,9 +90,9 @@ final class SystemConfigurationYmlTest extends TestCase
 
         // Secrets and per-website fields must NOT appear in global tree
         $this->assertNotContains(
-            'kenzi_oro_commerce.webhook_secret',
+            'kenzi_oro_commerce.secret',
             $globalChildren,
-            'webhook_secret must not be in global tree — it is website-scoped'
+            'secret must not be in global tree — it is website-scoped'
         );
         $this->assertNotContains(
             'kenzi_oro_commerce.workspace_id',
@@ -112,7 +112,7 @@ final class SystemConfigurationYmlTest extends TestCase
             'kenzi_oro_commerce.widget_base_url',
             'kenzi_oro_commerce.workspace_id',
             'kenzi_oro_commerce.sync_enabled',
-            'kenzi_oro_commerce.webhook_secret',
+            'kenzi_oro_commerce.secret',
             'kenzi_oro_commerce.store_key',
             'kenzi_oro_commerce.connected_at',
         ];

@@ -15,7 +15,7 @@ class Configuration implements ConfigurationInterface
     public const PARAM_NAME_WIDGET_ENABLED = 'widget_enabled';
     public const PARAM_NAME_SYNC_ENABLED = 'sync_enabled';
     public const PARAM_NAME_WEBHOOK_URL = 'webhook_url';
-    public const PARAM_NAME_WEBHOOK_SECRET = 'webhook_secret';
+    public const PARAM_NAME_SECRET = 'secret';
     public const PARAM_NAME_WORKSPACE_ID = 'workspace_id';
     public const PARAM_NAME_STORE_KEY = 'store_key';
     public const PARAM_NAME_WIDGET_BASE_URL = 'widget_base_url';
@@ -42,7 +42,7 @@ class Configuration implements ConfigurationInterface
                     'type' => 'scalar',
                     'value' => 'https://app.kenzi.chat/orocommerce/webhooks',
                 ],
-                self::PARAM_NAME_WEBHOOK_SECRET => [
+                self::PARAM_NAME_SECRET => [
                     'type' => 'scalar',
                     'value' => '',
                 ],

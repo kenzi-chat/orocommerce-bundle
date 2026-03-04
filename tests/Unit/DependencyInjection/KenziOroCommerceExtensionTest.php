@@ -53,7 +53,7 @@ final class KenziOroCommerceExtensionTest extends TestCase
             'widget_enabled',
             'sync_enabled',
             'webhook_url',
-            'webhook_secret',
+            'secret',
             'workspace_id',
             'store_key',
             'widget_base_url',

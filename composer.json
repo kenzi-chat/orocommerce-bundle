@@ -13,7 +13,9 @@
     ],
     "require": {
         "php": ">=8.1",
-        "oro/commerce": "6.1.*"
+        "oro/commerce": "6.1.*",
+        "symfony/http-client": "^6.4",
+        "symfony/uid": "^6.4"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.65",
