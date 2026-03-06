@@ -10,6 +10,7 @@ use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use Oro\Bundle\WebsiteBundle\Entity\Website;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -34,6 +35,57 @@ final class WebhookDispatcherTest extends TestCase
             new NullLogger(),
         );
     }
+
+    // ── isEnabledForWebsite ──────────────────────────────────────────────
+
+    public function testIsEnabledReturnsTrueWhenFullyConfigured(): void
+    {
+        $website = $this->createWebsiteMock(1);
+        $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
+
+        $this->assertTrue($this->dispatcher->isEnabledForWebsite($website));
+    }
+
+    public function testIsEnabledReturnsFalseWhenSyncDisabled(): void
+    {
+        $website = $this->createWebsiteMock(1);
+        $this->stubConfig($website, false, 'https://kenzi.test/webhooks', 'secret', 'store.com');
+
+        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+    }
+
+    public function testIsEnabledReturnsFalseWhenMissingSecret(): void
+    {
+        $website = $this->createWebsiteMock(1);
+        $this->stubConfig($website, true, 'https://kenzi.test/webhooks', '', 'store.com');
+
+        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+    }
+
+    public function testIsEnabledReturnsFalseWhenMissingUrl(): void
+    {
+        $website = $this->createWebsiteMock(1);
+        $this->stubConfig($website, true, '', 'secret', 'store.com');
+
+        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+    }
+
+    public function testIsEnabledReturnsFalseWhenMissingStoreKey(): void
+    {
+        $website = $this->createWebsiteMock(1);
+        $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', '');
+
+        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+    }
+
+    public function testIsEnabledWorksWithNullWebsite(): void
+    {
+        $this->stubConfig(null, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
+
+        $this->assertTrue($this->dispatcher->isEnabledForWebsite(null));
+    }
+
+    // ── dispatch ─────────────────────────────────────────────────────────
 
     public function testDispatchSendsCorrectHmacSignature(): void
     {
@@ -68,61 +120,21 @@ final class WebhookDispatcherTest extends TestCase
             )
             ->willReturn($this->createResponseMock(200));
 
-        $result = $this->dispatcher->dispatch($payload, 'order.created', $website);
-        $this->assertTrue($result);
-    }
-
-    public function testDispatchSkipsWhenDisabled(): void
-    {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, false, '', '', '');
-        $this->httpClient->expects($this->never())->method('request');
-
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
-    }
-
-    public function testDispatchSkipsWhenMissingSecret(): void
-    {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test/webhooks', '', 'test.store.com');
-        $this->httpClient->expects($this->never())->method('request');
-
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
-    }
-
-    public function testDispatchSkipsWhenMissingUrl(): void
-    {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, '', 'secret', 'test.store.com');
-        $this->httpClient->expects($this->never())->method('request');
-
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
-    }
-
-    public function testDispatchSkipsWhenMissingStoreKey(): void
-    {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', '');
-        $this->httpClient->expects($this->never())->method('request');
-
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
+        $this->dispatcher->dispatch($payload, 'order.created', $website);
     }
 
     /**
      * @dataProvider non2xxStatusCodeProvider
      */
-    public function testDispatchReturnsFalseOnNon2xxResponse(int $statusCode): void
+    public function testDispatchDoesNotThrowOnNon2xxResponse(int $statusCode): void
     {
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
-        $this->httpClient->method('request')->willReturn($this->createResponseMock($statusCode));
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->willReturn($this->createResponseMock($statusCode));
 
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
+        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
     /**
@@ -136,30 +148,44 @@ final class WebhookDispatcherTest extends TestCase
         yield 'server error (500)' => [500];
     }
 
-    public function testDispatchReturnsTrueOnUpperBound2xx(): void
+    public function testDispatchSucceedsOnUpperBound2xx(): void
     {
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
-        $this->httpClient->method('request')->willReturn($this->createResponseMock(299));
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->willReturn($this->createResponseMock(299));
 
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertTrue($result);
+        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchReturnsFalseOnTransportExceptionFromRequest(): void
+    public function testDispatchLogsErrorOnTransportExceptionFromRequest(): void
     {
+        $logger = $this->createMock(LoggerInterface::class);
+        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
+
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
 
         $exception = new class ('Connection timed out') extends \RuntimeException implements TransportExceptionInterface {};
         $this->httpClient->method('request')->willThrowException($exception);
 
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with('Webhook dispatch failed', $this->callback(function (array $context) {
+                return $context['error'] === 'Connection timed out'
+                    && $context['website_id'] === 1
+                    && $context['event'] === 'order.created';
+            }));
+
+        $dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchReturnsFalseOnTransportExceptionFromGetStatusCode(): void
+    public function testDispatchLogsErrorOnTransportExceptionFromGetStatusCode(): void
     {
+        $logger = $this->createMock(LoggerInterface::class);
+        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
+
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
 
@@ -168,18 +194,34 @@ final class WebhookDispatcherTest extends TestCase
         $response->method('getStatusCode')->willThrowException($exception);
         $this->httpClient->method('request')->willReturn($response);
 
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->assertFalse($result);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with('Webhook dispatch failed', $this->callback(function (array $context) {
+                return $context['error'] === 'DNS resolution failed'
+                    && $context['website_id'] === 1
+                    && $context['event'] === 'order.created';
+            }));
+
+        $dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchReturnsFalseOnJsonEncodingError(): void
+    public function testDispatchLogsErrorOnJsonEncodingFailure(): void
     {
+        $logger = $this->createMock(LoggerInterface::class);
+        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
+
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
         $this->httpClient->expects($this->never())->method('request');
 
-        $result = $this->dispatcher->dispatch(['bad' => \NAN], 'order.created', $website);
-        $this->assertFalse($result);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with('Webhook dispatch failed: JSON encoding error', $this->callback(function (array $context) {
+                return $context['website_id'] === 1
+                    && $context['event'] === 'order.created';
+            }));
+
+        $dispatcher->dispatch(['bad' => \NAN], 'order.created', $website);
     }
 
     public function testEachDispatchGeneratesUniqueDeliveryId(): void
@@ -204,18 +246,11 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchFallsBackToGlobalConfigWhenNoWebsite(): void
     {
         $this->stubConfig(null, true, 'https://kenzi.test/webhooks', 'secret', 'store.com');
-        $this->httpClient->method('request')->willReturn($this->createResponseMock(200));
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->willReturn($this->createResponseMock(200));
 
-        $result = $this->dispatcher->dispatch(['data' => []], 'order.created', null);
-        $this->assertTrue($result);
-    }
-
-    public function testDispatchReturnsFalseOnEmptyEvent(): void
-    {
-        $this->httpClient->expects($this->never())->method('request');
-
-        $result = $this->dispatcher->dispatch(['data' => []], '', null);
-        $this->assertFalse($result);
+        $this->dispatcher->dispatch(['data' => []], 'order.created', null);
     }
 
     public function testSignatureUsesRawBodyBytes(): void

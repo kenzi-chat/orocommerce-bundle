@@ -28,26 +28,15 @@ class WebhookDispatcher
     }
 
     /**
-     * Dispatch a webhook payload to the Kenzi endpoint.
+     * Whether webhook sync is enabled and fully configured for the given website.
      *
-     * @param array<string, mixed> $payload  Pre-serialized payload from OrderPayloadSerializer
-     * @param string               $event    Event name (e.g. "order.created") — empty string returns false
-     * @param Website|null         $website  Website to scope config reads to (null = global)
+     * Checks that sync_enabled is true AND all required config (webhook_url,
+     * secret, store_key) are present. Listeners use this to bail out early
+     * before serializing payloads for websites not connected to Kenzi.
      */
-    public function dispatch(array $payload, string $event, ?Website $website = null): bool
+    public function isEnabledForWebsite(?Website $website): bool
     {
-        if ($event === '') {
-            return false;
-        }
-
-        $websiteId = $website?->getId();
-
         if (!$this->getConfig(Configuration::PARAM_NAME_SYNC_ENABLED, $website)) {
-            $this->logger->debug('Webhook dispatch skipped: sync disabled', [
-                'website_id' => $websiteId,
-                'event' => $event,
-            ]);
-
             return false;
         }
 
@@ -55,19 +44,29 @@ class WebhookDispatcher
         $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SECRET, $website);
         $storeKey = $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
 
-        if (!\is_string($webhookUrl) || $webhookUrl === ''
-            || !\is_string($webhookSecret) || $webhookSecret === ''
-            || !\is_string($storeKey) || $storeKey === ''
-        ) {
-            $this->logger->warning('Webhook dispatch skipped: missing configuration', [
-                'website_id' => $websiteId,
-                'has_url' => \is_string($webhookUrl) && $webhookUrl !== '',
-                'has_secret' => \is_string($webhookSecret) && $webhookSecret !== '',
-                'has_store_key' => \is_string($storeKey) && $storeKey !== '',
-            ]);
+        return \is_string($webhookUrl) && $webhookUrl !== ''
+            && \is_string($webhookSecret) && $webhookSecret !== ''
+            && \is_string($storeKey) && $storeKey !== '';
+    }
 
-            return false;
-        }
+    /**
+     * Dispatch a webhook payload to the Kenzi endpoint.
+     *
+     * Callers must check isEnabledForWebsite() before calling this method.
+     * This method handles signing, sending, and logging — it does not gate
+     * on configuration.
+     *
+     * @param array<string, mixed> $payload  Pre-serialized payload from OrderPayloadSerializer
+     * @param non-empty-string     $event    Event name (e.g. "order.created")
+     * @param Website|null         $website  Website to scope config reads to (null = global)
+     */
+    public function dispatch(array $payload, string $event, ?Website $website = null): void
+    {
+        $websiteId = $website?->getId();
+
+        $webhookUrl = $this->getConfig(Configuration::PARAM_NAME_WEBHOOK_URL, $website);
+        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SECRET, $website);
+        $storeKey = $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
 
         try {
             $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -78,7 +77,7 @@ class WebhookDispatcher
                 'error' => $e->getMessage(),
             ]);
 
-            return false;
+            return;
         }
 
         $signature = $this->sign($rawBody, $webhookSecret);
@@ -109,7 +108,7 @@ class WebhookDispatcher
                     'status_code' => $statusCode,
                 ]);
 
-                return true;
+                return;
             }
 
             $this->logger->warning('Webhook endpoint returned non-2xx response', [
@@ -118,8 +117,6 @@ class WebhookDispatcher
                 'delivery_id' => $deliveryId,
                 'status_code' => $statusCode,
             ]);
-
-            return false;
         } catch (TransportExceptionInterface $e) {
             $this->logger->error('Webhook dispatch failed', [
                 'website_id' => $websiteId,
@@ -127,8 +124,6 @@ class WebhookDispatcher
                 'delivery_id' => $deliveryId,
                 'error' => $e->getMessage(),
             ]);
-
-            return false;
         }
     }
 

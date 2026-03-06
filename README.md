@@ -3,7 +3,7 @@
 Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.1 storefronts.
 
 - **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
-- **Order Webhooks** — Serializes OroCommerce Order entities into JSON payloads and dispatches them as HMAC-signed webhooks to Kenzi
+- **Order Webhooks** — Listens for order checkout and update events, serializes Order entities into JSON payloads, and dispatches them as HMAC-signed webhooks to Kenzi
 
 ## Installation
 

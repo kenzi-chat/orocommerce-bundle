@@ -17,3 +17,23 @@ services:
             $logger: '@logger'
         tags:
             - { name: monolog.logger, channel: kenzi_oro_commerce }
+
+    kenzi_oro_commerce.event_listener.order_checkout:
+        class: Kenzi\OroCommerceBundle\EventListener\OrderCheckoutListener
+        arguments:
+            $dispatcher: '@kenzi_oro_commerce.webhook.dispatcher'
+            $serializer: '@kenzi_oro_commerce.serializer.order_payload'
+            $logger: '@logger'
+        tags:
+            - { name: monolog.logger, channel: kenzi_oro_commerce }
+            - { name: kernel.event_listener, event: extendable_action.finish_checkout, method: onFinishCheckout, priority: -10 }
+
+    kenzi_oro_commerce.event_listener.order_update:
+        class: Kenzi\OroCommerceBundle\EventListener\OrderUpdateListener
+        arguments:
+            $dispatcher: '@kenzi_oro_commerce.webhook.dispatcher'
+            $serializer: '@kenzi_oro_commerce.serializer.order_payload'
+            $logger: '@logger'
+        tags:
+            - { name: monolog.logger, channel: kenzi_oro_commerce }
+            - { name: doctrine.orm.entity_listener, entity: 'Oro\Bundle\OrderBundle\Entity\Order', event: postUpdate }

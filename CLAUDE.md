@@ -8,7 +8,7 @@ Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi C
 2. **Order Payload Serializer** — Converts OroCommerce Order entities into the JSON payload structure defined by the Kenzi webhook contract
 3. **Webhook Dispatcher** — Signs payloads with HMAC-SHA256 and dispatches them to the Kenzi webhook endpoint with all required headers
 
-Entity listeners (dispatching webhooks on order events) will be added in later implementation tasks.
+Entity listeners dispatch webhooks on order events (checkout completion and order updates).
 
 ## Installation
 
@@ -73,6 +73,7 @@ This dual-tree pattern matches Oro's own bundles (TaxBundle, CustomerBundle, Coo
 ```
 src/
 ├── DependencyInjection/       # Config tree + extension loader
+├── EventListener/             # Order event listeners → webhook dispatch
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
 ├── Serializer/                # Order → webhook payload conversion
 ├── Webhook/                   # HMAC signing + HTTP dispatch to Kenzi
@@ -133,6 +134,15 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 - The `sign()` helper uses `hash_hmac(..., true)` for raw binary, NOT hex encoding
 
 The service is registered as `kenzi_oro_commerce.webhook.dispatcher` with the `kenzi_oro_commerce` monolog channel.
+
+### Event Listeners
+
+Two listeners wire OroCommerce order events to the webhook dispatcher:
+
+- **`OrderCheckoutListener`** — Listens to `extendable_action.finish_checkout` (Symfony EventDispatcher). Extracts the Order from `$event->getData()->get('order')` and dispatches `order.created`. Runs at priority `-10` so the order is fully persisted first.
+- **`OrderUpdateListener`** — Doctrine entity listener on `Order::postUpdate`. Receives the Order as a type-hinted first parameter and dispatches `order.updated`. Uses `Doctrine\Persistence\Event\LifecycleEventArgs` (not ORM-specific args).
+
+Both pass `$order->getWebsite()` to the dispatcher for website-scoped config resolution.
 
 ### Widget Injection Flow
 
