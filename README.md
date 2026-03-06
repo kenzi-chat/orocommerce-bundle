@@ -3,6 +3,7 @@
 Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.1 storefronts.
 
 - **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
+- **Connect Flow** — Admin controller to store/clear credentials from the Kenzi connect popup, scoped per-website
 - **Order Webhooks** — Listens for order checkout and update events, serializes Order entities into JSON payloads, and dispatches them as HMAC-signed webhooks to Kenzi
 
 ## Installation
@@ -34,7 +35,7 @@ Settings are managed through OroCommerce System Configuration (**Commerce > Kenz
 | Workspace ID | Website | Kenzi workspace identifier |
 | Enable Sync | Website | Enable entity webhook dispatching |
 | Secret | Website | HMAC-SHA256 shared secret |
-| Store Key | Website | Identifies this OroCommerce website to Kenzi |
+| Store Key | Website | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from the website URL. Sent as `X-Kenzi-Store-Key` header in webhooks so Kenzi can match the request to the right integration |
 | Connected At | Website | Timestamp of initial connection |
 
 ### CE/EE Compatibility
@@ -79,12 +80,22 @@ Tests are pure PHPUnit unit tests — no Oro kernel, no database. Oro services l
 ```
 tests/Unit/
 ├── BundleTest.php
+├── Controller/
+│   └── ConnectControllerTest.php
 ├── DependencyInjection/
 │   ├── ConfigurationTest.php
-│   └── KenziOroCommerceExtensionTest.php
-└── Layout/
-    └── DataProvider/
-        └── WidgetDataProviderTest.php
+│   ├── KenziOroCommerceExtensionTest.php
+│   └── SystemConfigurationYmlTest.php
+├── EventListener/
+│   ├── OrderCheckoutListenerTest.php
+│   └── OrderUpdateListenerTest.php
+├── Layout/
+│   └── DataProvider/
+│       └── WidgetDataProviderTest.php
+├── Serializer/
+│   └── OrderPayloadSerializerTest.php
+└── Webhook/
+    └── WebhookDispatcherTest.php
 ```
 
 ### Dependency notes

@@ -5,8 +5,9 @@
 Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capabilities:
 
 1. **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
-2. **Order Payload Serializer** — Converts OroCommerce Order entities into the JSON payload structure defined by the Kenzi webhook contract
-3. **Webhook Dispatcher** — Signs payloads with HMAC-SHA256 and dispatches them to the Kenzi webhook endpoint with all required headers
+2. **Connect Controller** — Admin-panel endpoints to connect/disconnect credentials from the Kenzi connect popup, scoped per-website
+3. **Order Payload Serializer** — Converts OroCommerce Order entities into the JSON payload structure defined by the Kenzi webhook contract
+4. **Webhook Dispatcher** — Signs payloads with HMAC-SHA256 and dispatches them to the Kenzi webhook endpoint with all required headers
 
 Entity listeners dispatch webhooks on order events (checkout completion and order updates).
 
@@ -39,7 +40,7 @@ All settings are managed through OroCommerce System Configuration (Commerce > Ke
 | Workspace ID | `workspace_id` | Website | `""` | Kenzi workspace identifier appended as `?w=` param |
 | Enable Sync | `sync_enabled` | Website | `false` | Enable entity webhook dispatching |
 | Secret | `secret` | Website | `""` | HMAC-SHA256 shared secret |
-| Store Key | `store_key` | Website | `""` | Identifies this OroCommerce website to Kenzi |
+| Store Key | `store_key` | Website | `""` | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from `oro_website.url`. Sent as `X-Kenzi-Store-Key` webhook header so Kenzi can look up the matching `Integration` record |
 | Connected At | `connected_at` | Website | `""` | Timestamp of initial connection |
 
 ### Configuration Scoping (CE/EE Compatibility)
@@ -72,6 +73,7 @@ This dual-tree pattern matches Oro's own bundles (TaxBundle, CustomerBundle, Coo
 
 ```
 src/
+├── Controller/                # Admin endpoints for connect/disconnect flow
 ├── DependencyInjection/       # Config tree + extension loader
 ├── EventListener/             # Order event listeners → webhook dispatch
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
@@ -79,12 +81,30 @@ src/
 ├── Webhook/                   # HMAC signing + HTTP dispatch to Kenzi
 ├── Resources/
 │   ├── config/
-│   │   ├── oro/               # bundles.yml, system_configuration.yml
+│   │   ├── oro/               # bundles.yml, routing.yml, system_configuration.yml
 │   │   └── services.yml       # Service definitions
 │   ├── translations/          # messages.en.yml
 │   └── views/layouts/         # Twig layout for widget injection
 └── KenziOroCommerceBundle.php
 ```
+
+### Connect Controller
+
+`ConnectController` provides two POST endpoints behind Oro's admin authentication firewall:
+
+- **`POST /admin/kenzi/connect/connect`** — Receives `{workspace_id, secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
+- **`POST /admin/kenzi/connect/disconnect`** — Clears all Kenzi config fields for a Website (secret, workspace_id, store_key, connected_at) and disables sync.
+
+**Key details:**
+
+- `#[CsrfProtection]` uses Oro's Double Submit Cookie pattern — the admin JS framework sends `X-CSRF-Header` automatically
+- `#[AclAncestor('oro_config_system')]` on both actions — only admins with system configuration permission can connect or disconnect
+- Website lookup uses `AclHelper::apply()` to scope by the current user's organization — prevents cross-org access in EE multi-org setups
+- `store_key` is derived from `oro_website.url` config (read via `ConfigManager`), not from the `Website` entity directly (which has no `getUrl()` method)
+- Credentials are trimmed before validation and storage — whitespace-only values are rejected
+- Routes are registered via `Resources/config/oro/routing.yml` with attribute-based routing and `/admin` prefix
+
+The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager`, `ManagerRegistry`, and `AclHelper` injected.
 
 ### Order Payload Serializer
 
