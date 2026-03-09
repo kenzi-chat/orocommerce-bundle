@@ -85,4 +85,43 @@ final class KenziOroCommerceExtensionTest extends TestCase
     {
         $this->assertSame('kenzi_oro_commerce', $this->extension->getAlias());
     }
+
+    public function testLoadRegistersConnectButtonFormType(): void
+    {
+        $this->extension->load([], $this->container);
+
+        $this->assertTrue(
+            $this->container->has('kenzi_oro_commerce.form.type.connect_button'),
+            'KenziConnectButtonType service should be registered'
+        );
+
+        $definition = $this->container->getDefinition('kenzi_oro_commerce.form.type.connect_button');
+        $this->assertSame(
+            'Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType',
+            $definition->getClass()
+        );
+
+        $tags = $definition->getTag('form.type');
+        $this->assertNotEmpty($tags, 'Service should have form.type tag');
+    }
+
+    public function testPrependRegistersFormTheme(): void
+    {
+        $this->extension->prepend($this->container);
+
+        $twigConfigs = $this->container->getExtensionConfig('twig');
+
+        $formThemes = [];
+        foreach ($twigConfigs as $config) {
+            if (isset($config['form_themes'])) {
+                $formThemes = array_merge($formThemes, $config['form_themes']);
+            }
+        }
+
+        $this->assertContains(
+            '@KenziOroCommerce/Form/fields.html.twig',
+            $formThemes,
+            'Bundle form theme must be registered'
+        );
+    }
 }

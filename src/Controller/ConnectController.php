@@ -11,7 +11,6 @@ use Oro\Bundle\SecurityBundle\Attribute\AclAncestor;
 use Oro\Bundle\SecurityBundle\Attribute\CsrfProtection;
 use Oro\Bundle\SecurityBundle\ORM\Walker\AclHelper;
 use Oro\Bundle\WebsiteBundle\Entity\Website;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -20,9 +19,9 @@ use Symfony\Component\Routing\Attribute\Route;
  * Receives credentials from the Kenzi connect popup and stores them
  * in Oro's system configuration, scoped to the selected Website.
  */
-#[Route(path: '/kenzi/connect', name: 'kenzi_orocommerce_connect_')]
+#[Route(path: '/kenzi/connect')]
 #[CsrfProtection]
-class ConnectController extends AbstractController
+class ConnectController
 {
     public function __construct(
         private readonly ConfigManager $configManager,
@@ -38,7 +37,7 @@ class ConnectController extends AbstractController
      * The store_key is auto-derived from the Website entity's URL hostname.
      * All values are stored scoped to the specified Website entity.
      */
-    #[Route(path: '/connect', name: 'connect', methods: ['POST'])]
+    #[Route(path: '/connect', name: 'kenzi_orocommerce_connect', methods: ['POST'])]
     #[AclAncestor('oro_config_system')]
     public function connect(Request $request): JsonResponse
     {
@@ -51,8 +50,12 @@ class ConnectController extends AbstractController
             return new JsonResponse(['error' => 'Missing required fields'], 400);
         }
 
-        $website = $this->findWebsite((int) $data['website_id']);
-        if ($website === null) {
+        // website_id=0 means global scope (CE or EE system configuration).
+        // website_id>0 means website scope (EE website configuration).
+        $websiteId = (int) $data['website_id'];
+        $website = $websiteId > 0 ? $this->findWebsite($websiteId) : null;
+
+        if ($websiteId > 0 && $website === null) {
             return new JsonResponse(['error' => 'Website not found'], 404);
         }
 
@@ -76,7 +79,7 @@ class ConnectController extends AbstractController
     /**
      * Disconnects the Kenzi integration for a specific Website.
      */
-    #[Route(path: '/disconnect', name: 'disconnect', methods: ['POST'])]
+    #[Route(path: '/disconnect', name: 'kenzi_orocommerce_disconnect', methods: ['POST'])]
     #[AclAncestor('oro_config_system')]
     public function disconnect(Request $request): JsonResponse
     {
@@ -86,8 +89,10 @@ class ConnectController extends AbstractController
             return new JsonResponse(['error' => 'Missing required fields'], 400);
         }
 
-        $website = $this->findWebsite((int) $data['website_id']);
-        if ($website === null) {
+        $websiteId = (int) $data['website_id'];
+        $website = $websiteId > 0 ? $this->findWebsite($websiteId) : null;
+
+        if ($websiteId > 0 && $website === null) {
             return new JsonResponse(['error' => 'Website not found'], 404);
         }
 
@@ -114,7 +119,7 @@ class ConnectController extends AbstractController
     /**
      * @param string|bool $value
      */
-    private function setConfig(string $paramName, $value, Website $website): void
+    private function setConfig(string $paramName, $value, ?Website $website): void
     {
         $this->configManager->set(
             Configuration::getConfigKeyByName($paramName),

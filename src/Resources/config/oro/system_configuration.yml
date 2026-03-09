@@ -3,14 +3,21 @@ system_configuration:
         kenzi:
             title: kenzi_oro_commerce.system_configuration.groups.kenzi.title
             icon: fa-comments
-            priority: 100
         kenzi_connection:
             title: kenzi_oro_commerce.system_configuration.groups.kenzi_connection.title
-            priority: 10
-        kenzi_connection_general:
-            title: kenzi_oro_commerce.system_configuration.groups.kenzi_connection_general.title
+        kenzi_connection_website:
+            title: kenzi_oro_commerce.system_configuration.groups.kenzi_connection.title
 
     fields:
+        kenzi_oro_commerce.connect_button:
+            ui_only: true
+            data_type: string
+            type: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
+            priority: 30
+            options:
+                label: kenzi_oro_commerce.system_configuration.fields.connect_button.label
+                required: false
+                resettable: false
         kenzi_oro_commerce.widget_enabled:
             data_type: boolean
             type: Symfony\Component\Form\Extension\Core\Type\CheckboxType
@@ -29,15 +36,16 @@ system_configuration:
 
     tree:
         system_configuration:
-            commerce:
+            platform:
                 children:
-                    kenzi:
-                        priority: 1000
+                    integrations:
                         children:
-                            kenzi_connection:
+                            kenzi:
+                                priority: -100
                                 children:
-                                    kenzi_connection_general:
+                                    kenzi_connection:
                                         children:
+                                            - kenzi_oro_commerce.connect_button
                                             - kenzi_oro_commerce.widget_enabled
                                             - kenzi_oro_commerce.webhook_url
         website_configuration:
@@ -48,12 +56,7 @@ system_configuration:
                         children:
                             kenzi_connection:
                                 children:
-                                    kenzi_connection_general:
+                                    kenzi_connection_website:
                                         children:
+                                            - kenzi_oro_commerce.connect_button
                                             - kenzi_oro_commerce.widget_enabled
-                                            - kenzi_oro_commerce.widget_base_url
-                                            - kenzi_oro_commerce.workspace_id
-                                            - kenzi_oro_commerce.sync_enabled
-                                            - kenzi_oro_commerce.secret
-                                            - kenzi_oro_commerce.store_key
-                                            - kenzi_oro_commerce.connected_at

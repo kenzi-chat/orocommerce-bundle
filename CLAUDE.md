@@ -54,7 +54,7 @@ All settings are managed through OroCommerce System Configuration (Commerce > Ke
   - `system_configuration` tree → Global scope (one value for the entire Oro instance)
   - `website_configuration` tree → Website scope (per-website values on EE, dormant on CE)
 - Parameters need a `fields:` entry ONLY if they should appear in the admin UI
-- Parameters without `fields:` entries can still appear in tree children for scoping purposes
+- Programmatic-only parameters (set via `ConfigManager::set()` in code) do NOT need tree entries — scoping is determined by how `set()` is called (with or without a Website entity), not by tree placement
 
 **CE vs EE behavior:**
 
@@ -92,8 +92,8 @@ src/
 
 `ConnectController` provides two POST endpoints behind Oro's admin authentication firewall:
 
-- **`POST /admin/kenzi/connect/connect`** — Receives `{workspace_id, secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
-- **`POST /admin/kenzi/connect/disconnect`** — Clears all Kenzi config fields for a Website (secret, workspace_id, store_key, connected_at) and disables sync.
+- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
+- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi config fields for a Website (secret, workspace_id, store_key, connected_at) and disables sync.
 
 **Key details:**
 

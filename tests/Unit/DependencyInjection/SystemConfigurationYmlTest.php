@@ -37,13 +37,18 @@ final class SystemConfigurationYmlTest extends TestCase
 
         $this->assertArrayHasKey('kenzi', $groups, 'Root group "kenzi" must exist');
         $this->assertArrayHasKey('kenzi_connection', $groups, 'Group "kenzi_connection" must exist');
-        $this->assertArrayHasKey('kenzi_connection_general', $groups, 'Group "kenzi_connection_general" must exist');
+        $this->assertArrayHasKey('kenzi_connection_website', $groups, 'Group "kenzi_connection_website" must exist');
     }
 
     public function testAdminVisibleFieldsDefined(): void
     {
         $fields = $this->config['system_configuration']['fields'];
 
+        $this->assertArrayHasKey(
+            'kenzi_oro_commerce.connect_button',
+            $fields,
+            'connect_button field must have admin UI definition'
+        );
         $this->assertArrayHasKey(
             'kenzi_oro_commerce.widget_enabled',
             $fields,
@@ -53,6 +58,17 @@ final class SystemConfigurationYmlTest extends TestCase
             'kenzi_oro_commerce.webhook_url',
             $fields,
             'webhook_url field must have admin UI definition'
+        );
+    }
+
+    public function testConnectButtonFieldIsUiOnly(): void
+    {
+        $field = $this->config['system_configuration']['fields']['kenzi_oro_commerce.connect_button'];
+
+        $this->assertTrue($field['ui_only'], 'connect_button must be ui_only');
+        $this->assertSame(
+            'Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType',
+            $field['type']
         );
     }
 
@@ -79,12 +95,14 @@ final class SystemConfigurationYmlTest extends TestCase
         );
     }
 
-    public function testGlobalTreeContainsOnlyGlobalFields(): void
+    public function testGlobalTreeContainsExpectedFields(): void
     {
         $globalChildren = $this->resolveTreeLeaves(
             $this->config['system_configuration']['tree']['system_configuration']
         );
 
+        // Connect button appears in both trees for CE/EE compatibility
+        $this->assertContains('kenzi_oro_commerce.connect_button', $globalChildren);
         $this->assertContains('kenzi_oro_commerce.widget_enabled', $globalChildren);
         $this->assertContains('kenzi_oro_commerce.webhook_url', $globalChildren);
 
@@ -107,14 +125,12 @@ final class SystemConfigurationYmlTest extends TestCase
             $this->config['system_configuration']['tree']['website_configuration']
         );
 
+        // Only admin-visible fields belong in the tree.
+        // Programmatic-only fields (secret, workspace_id, etc.) are scoped
+        // via ConfigManager::set() and do NOT need tree entries.
         $expectedWebsiteFields = [
+            'kenzi_oro_commerce.connect_button',
             'kenzi_oro_commerce.widget_enabled',
-            'kenzi_oro_commerce.widget_base_url',
-            'kenzi_oro_commerce.workspace_id',
-            'kenzi_oro_commerce.sync_enabled',
-            'kenzi_oro_commerce.secret',
-            'kenzi_oro_commerce.store_key',
-            'kenzi_oro_commerce.connected_at',
         ];
 
         foreach ($expectedWebsiteFields as $field) {
@@ -124,14 +140,31 @@ final class SystemConfigurationYmlTest extends TestCase
                 "Website tree must contain {$field}"
             );
         }
+
+        // webhook_url is global-only — should NOT be in website tree
+        $this->assertNotContains(
+            'kenzi_oro_commerce.webhook_url',
+            $websiteChildren,
+            'webhook_url is global-only and must not be in website tree'
+        );
     }
 
-    public function testTreesNestUnderCommerceSection(): void
+    public function testGlobalTreeNestsUnderPlatformIntegrations(): void
     {
         $sysTree = $this->config['system_configuration']['tree']['system_configuration'];
+
+        $this->assertArrayHasKey('platform', $sysTree, 'Global tree must nest under "platform"');
+        $this->assertArrayHasKey(
+            'integrations',
+            $sysTree['platform']['children'],
+            'Global tree must nest under "platform > integrations"'
+        );
+    }
+
+    public function testWebsiteTreeNestsUnderCommerce(): void
+    {
         $webTree = $this->config['system_configuration']['tree']['website_configuration'];
 
-        $this->assertArrayHasKey('commerce', $sysTree, 'Global tree must nest under "commerce"');
         $this->assertArrayHasKey('commerce', $webTree, 'Website tree must nest under "commerce"');
     }
 

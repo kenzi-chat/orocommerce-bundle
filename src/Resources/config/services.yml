@@ -1,4 +1,11 @@
 services:
+    kenzi_oro_commerce.form.type.connect_button:
+        class: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
+        arguments:
+            $configManager: '@oro_config.manager'
+        tags:
+            - { name: form.type }
+
     kenzi_oro_commerce.controller.connect:
         class: Kenzi\OroCommerceBundle\Controller\ConnectController
         arguments:
@@ -7,6 +14,10 @@ services:
             $aclHelper: '@oro_security.acl_helper'
         tags:
             - { name: controller.service_arguments }
+
+    Kenzi\OroCommerceBundle\Controller\ConnectController:
+        alias: kenzi_oro_commerce.controller.connect
+        public: true
 
     kenzi_oro_commerce.layout.data_provider.widget:
         class: Kenzi\OroCommerceBundle\Layout\DataProvider\WidgetDataProvider

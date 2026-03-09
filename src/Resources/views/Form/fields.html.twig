@@ -1,0 +1,48 @@
+{#
+    Renders the Kenzi connect/disconnect button on the system configuration page.
+
+    The website context comes from Oro's built-in scope selector — when the admin
+    selects a Website, the page reloads and all config values return values scoped
+    to that website. The KenziConnectButtonType form type reads the connection state
+    from ConfigManager and passes it here as view variables.
+
+    The page component (kenzi-connect-component) is auto-initialized by Oro's
+    PageController via the data-page-component-module attribute below.
+#}
+{% block kenzi_connect_button_widget %}
+    {% set componentOptions = {
+        storeUrl: path('kenzi_orocommerce_connect'),
+        disconnectUrl: path('kenzi_orocommerce_disconnect'),
+        kenziOrigin: kenzi_origin,
+        websiteId: website_id,
+        storeKey: store_key
+    } %}
+
+    <div class="kenzi-connect-status"
+         data-page-component-module="kenziorocommerce/js/app/components/kenzi-connect-component"
+         data-page-component-options="{{ componentOptions|json_encode }}">
+        {% if is_connected %}
+            <div class="alert alert-success">
+                <i class="fa fa-check-circle"></i>
+                <strong>{{ 'kenzi_oro_commerce.connect.status.connected'|trans }}</strong><br>
+                {{ 'kenzi_oro_commerce.connect.status.workspace'|trans }}: {{ workspace_id }}<br>
+                {{ 'kenzi_oro_commerce.connect.status.store'|trans }}: {{ store_key }}<br>
+                {{ 'kenzi_oro_commerce.connect.status.connected_at'|trans }}: {{ connected_at|date('M j, Y g:i A') }}
+            </div>
+            <button type="button" class="btn btn-danger"
+                    data-action="disconnect">
+                <i class="fa fa-unlink"></i>
+                {{ 'kenzi_oro_commerce.connect.button.disconnect'|trans }}
+            </button>
+        {% else %}
+            <button type="button" class="btn btn-primary"
+                    data-action="connect">
+                <i class="fa fa-link"></i>
+                {{ 'kenzi_oro_commerce.connect.button.connect'|trans }}
+            </button>
+            <p class="help-block">
+                {{ 'kenzi_oro_commerce.connect.help.connect'|trans }}
+            </p>
+        {% endif %}
+    </div>
+{% endblock %}

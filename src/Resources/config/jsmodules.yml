@@ -1,0 +1,3 @@
+dynamic-imports:
+    kenziorocommerce:
+        - kenziorocommerce/js/app/components/kenzi-connect-component

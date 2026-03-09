@@ -265,6 +265,57 @@ final class ConnectControllerTest extends TestCase
         $this->assertLessThan(5, $diff, 'connected_at should be within 5 seconds of now');
     }
 
+    // -- Connect: global scope (CE) --
+
+    public function testConnectWithGlobalScope(): void
+    {
+        // website_id=0 means global scope — no website entity lookup, null passed to ConfigManager
+        $this->configManager->method('get')
+            ->with('oro_website.url', false, false, null)
+            ->willReturn('https://b2b.default-store.com');
+
+        $setCalls = [];
+        $this->configManager->expects($this->exactly(5))
+            ->method('set')
+            ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
+                $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
+            });
+        $this->configManager->expects($this->once())->method('flush');
+
+        $request = $this->createJsonRequest([
+            'workspace_id' => 'ws_global',
+            'secret' => 'sec_global',
+            'website_id' => 0,
+        ]);
+
+        $response = $this->controller->connect($request);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertJsonStringEqualsJsonString('{"status":"connected"}', $response->getContent());
+
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_global', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, 'sec_global', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, 'b2b.default-store.com', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, true, null);
+    }
+
+    public function testConnectWithGlobalScopeReturns422WhenWebsiteUrlEmpty(): void
+    {
+        $this->configManager->method('get')
+            ->with('oro_website.url', false, false, null)
+            ->willReturn('');
+
+        $request = $this->createJsonRequest([
+            'workspace_id' => 'ws_1',
+            'secret' => 'sec_1',
+            'website_id' => 0,
+        ]);
+
+        $response = $this->controller->connect($request);
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
     // -- Disconnect: validation --
 
     public function testDisconnectReturns400WhenBodyIsEmpty(): void
@@ -334,6 +385,32 @@ final class ConnectControllerTest extends TestCase
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '', $website);
     }
 
+    // -- Disconnect: global scope (CE) --
+
+    public function testDisconnectWithGlobalScope(): void
+    {
+        $setCalls = [];
+        $this->configManager->expects($this->exactly(5))
+            ->method('set')
+            ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
+                $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
+            });
+        $this->configManager->expects($this->once())->method('flush');
+
+        $request = $this->createJsonRequest(['website_id' => 0]);
+
+        $response = $this->controller->disconnect($request);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertJsonStringEqualsJsonString('{"status":"disconnected"}', $response->getContent());
+
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, false, null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, '', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, '', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, '', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '', null);
+    }
+
     // -- Helpers --
 
     private function createJsonRequest(array $data): Request
@@ -379,7 +456,7 @@ final class ConnectControllerTest extends TestCase
      * @param array<array{key: string, value: mixed, scope: ?Website}> $setCalls
      * @param string|bool $expectedValue
      */
-    private function assertConfigWasSet(array $setCalls, string $paramName, $expectedValue, Website $expectedScope): void
+    private function assertConfigWasSet(array $setCalls, string $paramName, $expectedValue, ?Website $expectedScope): void
     {
         $expectedKey = Configuration::getConfigKeyByName($paramName);
         foreach ($setCalls as $call) {
