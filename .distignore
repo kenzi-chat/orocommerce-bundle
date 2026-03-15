@@ -1,0 +1,10 @@
+.distignore
+.gitignore
+.github/
+.php-cs-fixer.cache
+.php-cs-fixer.php
+.phpunit.cache/
+CLAUDE.md
+phpstan.neon
+phpunit.xml
+tests/
