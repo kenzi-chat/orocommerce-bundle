@@ -26,7 +26,8 @@ define(function(require) {
             disconnectUrl: '',
             kenziOrigin: '',
             websiteId: '',
-            storeKey: ''
+            storeKey: '',
+            adminUrl: ''
         },
 
         /**
@@ -73,7 +74,7 @@ define(function(require) {
             if (!kenziOrigin) {
                 mediator.execute(
                     'showFlashMessage', 'error',
-                    __('kenzi_oro_commerce.connect.error.no_webhook_url')
+                    __('kenzi_oro_commerce.connect.error.no_kenzi_origin')
                 );
                 return;
             }
@@ -82,10 +83,15 @@ define(function(require) {
 
             const params = new URLSearchParams({
                 platform: 'oro_commerce',
-                store_key: storeKey || '',
+                instance_key: storeKey || '',
                 nonce: nonce,
-                origin: window.location.origin
+                origin: window.location.origin,
+                capabilities: 'commerce'
             });
+
+            if (this.options.adminUrl) {
+                params.set('admin_url', this.options.adminUrl);
+            }
 
             const popup = window.open(
                 kenziOrigin + '/connect?' + params.toString(),
@@ -110,7 +116,7 @@ define(function(require) {
 
                 const data = event.data;
 
-                if (!data || data.type !== 'kenzi:connected') {
+                if (!data || data.type !== 'kenzi_connected') {
                     return;
                 }
 
@@ -127,7 +133,7 @@ define(function(require) {
 
                 self._storeCredentials({
                     workspace_id: data.workspace_id,
-                    secret: data.secret,
+                    shared_secret: data.shared_secret,
                     website_id: parseInt(websiteId, 10)
                 }, $button);
             };

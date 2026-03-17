@@ -30,22 +30,29 @@ All settings are managed through OroCommerce System Configuration (Commerce > Ke
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
 | Enable Widget | `widget_enabled` | Website | `false` | Show chat widget on storefront |
-| Webhook URL | `webhook_url` | Global | `https://app.kenzi.chat/orocommerce/webhooks` | Kenzi endpoint for webhooks |
+
+### Environment-Seeded Fields (set by data migration from env vars)
+
+These values are seeded by `LoadKenziBaseUrls` on every `oro:install` / `oro:platform:update`. The migration unconditionally overwrites DB values with the current env var (or the fallback). The schema default in `Configuration.php` is `""` — the "Fallback" column below is what the migration writes when the env var is absent.
+
+| Parameter | Config Key | Scope | Fallback | Env Override | Description |
+|-----------|-----------|-------|----------|-------------|-------------|
+| App Base | `app_base_url` | Global | `https://app.kenzi.chat` | `KENZI_APP_BASE` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/orocommerce/webhooks`) |
+| Static Base | `static_base_url` | Global | `https://static.kenzi.chat` | `KENZI_STATIC_BASE` | Kenzi static CDN — used to construct the widget loader URL (`{static_base_url}/widget/loader.js`) |
 
 ### Programmatic-Only Fields (set by connect flow, no admin UI)
 
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
-| Widget Script URL | `widget_base_url` | Website | `""` | Base URL for widget loader |
 | Workspace ID | `workspace_id` | Website | `""` | Kenzi workspace identifier appended as `?w=` param |
 | Enable Sync | `sync_enabled` | Website | `false` | Enable entity webhook dispatching |
-| Secret | `secret` | Website | `""` | HMAC-SHA256 shared secret |
+| Shared Secret | `shared_secret` | Website | `""` | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup's `kenzi_connected` postMessage payload) |
 | Store Key | `store_key` | Website | `""` | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from `oro_website.url`. Sent as `X-Kenzi-Store-Key` webhook header so Kenzi can look up the matching `Integration` record |
 | Connected At | `connected_at` | Website | `""` | Timestamp of initial connection |
 
 ### Configuration Scoping (CE/EE Compatibility)
 
-**Design principle:** Each OroCommerce website = one independent Kenzi workspace connection. All connection parameters are website-scoped except `webhook_url` (global — one Kenzi endpoint for all websites, differentiated by `X-Kenzi-Store-Key` header).
+**Design principle:** Each OroCommerce website = one independent Kenzi workspace connection. All connection parameters are website-scoped. `app_base_url` and `static_base_url` are global (one Kenzi instance for all websites, differentiated by `X-Kenzi-Store-Key` header).
 
 **How scoping works in Oro:**
 
@@ -77,6 +84,7 @@ src/
 ├── DependencyInjection/       # Config tree + extension loader
 ├── EventListener/             # Order event listeners → webhook dispatch
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
+├── Migrations/Data/ORM/       # Data migrations (seeds base URLs from env vars)
 ├── Serializer/                # Order → webhook payload conversion
 ├── Webhook/                   # HMAC signing + HTTP dispatch to Kenzi
 ├── Resources/
@@ -92,8 +100,8 @@ src/
 
 `ConnectController` provides two POST endpoints behind Oro's admin authentication firewall:
 
-- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
-- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi config fields for a Website (secret, workspace_id, store_key, connected_at) and disables sync.
+- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, shared_secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
+- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi config fields for a Website (shared_secret, workspace_id, store_key, connected_at) and disables sync.
 
 **Key details:**
 
@@ -105,6 +113,31 @@ src/
 - Routes are registered via `Resources/config/oro/routing.yml` with attribute-based routing and `/admin` prefix
 
 The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager`, `ManagerRegistry`, and `AclHelper` injected.
+
+### Connect Button JavaScript
+
+`kenzi-connect-component.js` is an Oro `BaseComponent` auto-initialized on the system configuration page. It handles the popup-based connect flow:
+
+**Popup URL parameters** (sent to Kenzi `/connect`):
+
+| Param | Value | Description |
+|-------|-------|-------------|
+| `platform` | `oro_commerce` | Platform identifier |
+| `instance_key` | Store key (hostname) | Unique identifier for the Oro website |
+| `nonce` | `crypto.randomUUID()` | CSRF correlation — echoed back in postMessage |
+| `origin` | `window.location.origin` | Oro admin origin for postMessage targeting |
+| `capabilities` | `commerce` | Requests commerce data sync capability |
+| `admin_url` | Oro admin dashboard URL | For deep-linking to orders/customers in Kenzi |
+
+**postMessage contract** — the JS listens for `kenzi_connected` (underscore, not colon) from the Kenzi popup:
+
+```javascript
+// Received from Phoenix
+{ type: "kenzi_connected", nonce, workspace_id, shared_secret, ... }
+
+// Sent to ConnectController via AJAX
+{ workspace_id, shared_secret, website_id }
+```
 
 ### Order Payload Serializer
 
@@ -135,14 +168,14 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 
 ### Webhook Dispatcher
 
-`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It reads all configuration scoped to the order's Website.
+`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It derives the webhook URL from the global `app_base_url` config (`{app_base_url}/orocommerce/webhooks`) and reads `shared_secret` and `store_key` scoped to the order's Website.
 
 **Dispatch flow:**
 
 1. Check `sync_enabled` — return `false` if disabled
-2. Read `webhook_url`, `secret`, `store_key` — return `false` if any are empty
+2. Derive webhook URL from global `app_base_url` (`{app_base_url}/orocommerce/webhooks`), read `shared_secret`, `store_key` — return `false` if any are empty
 3. JSON-encode payload with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR`
-4. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $secret, true))` — raw binary output, then base64
+4. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true))` — raw binary output, then base64
 5. Generate unique delivery ID (`Uuid::v4`) and current Unix timestamp
 6. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-store-key`, `x-kenzi-event`
 
@@ -166,8 +199,8 @@ Both pass `$order->getWebsite()` to the dispatcher for website-scoped config res
 
 ### Widget Injection Flow
 
-1. `WidgetDataProvider` (layout data provider, alias: `kenzi_widget`) reads `widget_enabled`, `workspace_id`, `widget_base_url` from `ConfigManager` (auto-scoped via Oro's scope cascade — see Configuration Scoping above)
-2. Layout import `kenzi_widget.yml` uses `visible: '=data["kenzi_widget"].isWidgetEnabled()'` to hide the block when disabled, and passes `widgetBaseUrl`/`workspaceId` to Twig via `options.vars`
+1. `WidgetDataProvider` (layout data provider, alias: `kenzi_widget`) reads `widget_enabled`, `workspace_id` from `ConfigManager` (auto-scoped via Oro's scope cascade) and derives the widget script URL from the global `static_base_url` config (`{static_base_url}/widget/loader.js`)
+2. Layout import `kenzi_widget.yml` uses `visible: '=data["kenzi_widget"].isWidgetEnabled()'` to hide the block when disabled, and passes `widgetScriptUrl`/`workspaceId` to Twig via `options.vars`
 3. `kenzi_widget.html.twig` renders `<script>` tag using block variables (not `data["..."]` — Oro layout `data` is only available in YAML expressions, not in Twig)
 
 ## Key Dependencies

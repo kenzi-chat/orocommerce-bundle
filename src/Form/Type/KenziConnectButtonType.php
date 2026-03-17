@@ -10,6 +10,8 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormView;
 use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Component\Routing\RouterInterface;
 
 /**
  * Renders the Kenzi connect/disconnect button on the system configuration page.
@@ -23,6 +25,7 @@ class KenziConnectButtonType extends AbstractType
 {
     public function __construct(
         private readonly ConfigManager $configManager,
+        private readonly RouterInterface $router,
     ) {
     }
 
@@ -77,13 +80,20 @@ class KenziConnectButtonType extends AbstractType
             $storeKey = (string) parse_url($websiteUrl, PHP_URL_HOST);
         }
 
-        // Derive the Kenzi app origin from the webhook URL so the JS can
-        // validate postMessage origin and open the connect popup against
-        // the correct environment (production, staging, or dev).
-        $webhookUrl = (string) $this->configManager->get(
-            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_WEBHOOK_URL)
+        // app_base_url is the Kenzi app origin — used to open the connect popup
+        // and validate incoming postMessage events. Seeded by data migration
+        // from the KENZI_APP_BASE env var (or defaults to https://app.kenzi.chat).
+        $kenziOrigin = (string) $this->configManager->get(
+            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_APP_BASE_URL)
         );
-        $kenziOrigin = self::deriveOrigin($webhookUrl);
+
+        // Generate the absolute URL to the Oro admin dashboard.
+        // Kenzi stores this so agents can deep-link directly to orders,
+        // customers, and products in the admin panel.
+        $adminUrl = rtrim(
+            $this->router->generate('oro_default', [], UrlGeneratorInterface::ABSOLUTE_URL),
+            '/'
+        );
 
         $view->vars['is_connected'] = $connectedAt !== '';
         $view->vars['workspace_id'] = $workspaceId;
@@ -91,34 +101,12 @@ class KenziConnectButtonType extends AbstractType
         $view->vars['connected_at'] = $connectedAt;
         $view->vars['website_id'] = $websiteId;
         $view->vars['kenzi_origin'] = $kenziOrigin;
+        $view->vars['admin_url'] = $adminUrl;
     }
 
     #[\Override]
     public function getBlockPrefix(): string
     {
         return 'kenzi_connect_button';
-    }
-
-    /**
-     * Extract the origin (scheme + host + optional port) from a URL.
-     *
-     * Used to derive the Kenzi app origin from the webhook URL so the
-     * connect popup JS validates postMessage against the correct environment.
-     */
-    private static function deriveOrigin(string $url): string
-    {
-        $parsed = parse_url($url);
-
-        if (!isset($parsed['scheme'], $parsed['host'])) {
-            return '';
-        }
-
-        $origin = $parsed['scheme'] . '://' . $parsed['host'];
-
-        if (isset($parsed['port'])) {
-            $origin .= ':' . $parsed['port'];
-        }
-
-        return $origin;
     }
 }

@@ -79,22 +79,31 @@ final class WidgetDataProviderTest extends TestCase
         $this->assertSame('', $this->provider->getWorkspaceId());
     }
 
-    public function testGetWidgetBaseUrlReturnsConfiguredValue(): void
+    public function testGetWidgetScriptUrlDerivesFromStaticBaseUrl(): void
     {
         $this->stubConfig([
-            Configuration::PARAM_NAME_WIDGET_BASE_URL => 'https://cdn.kenzi.chat/widget/loader.js',
+            Configuration::PARAM_NAME_STATIC_BASE_URL => 'https://static.kenzi.chat',
         ]);
 
-        $this->assertSame('https://cdn.kenzi.chat/widget/loader.js', $this->provider->getWidgetBaseUrl());
+        $this->assertSame('https://static.kenzi.chat/widget/loader.js', $this->provider->getWidgetScriptUrl());
     }
 
-    public function testGetWidgetBaseUrlReturnsEmptyWhenNotOverridden(): void
+    public function testGetWidgetScriptUrlReturnsEmptyWhenStaticBaseUrlIsEmpty(): void
     {
         $this->stubConfig([
-            Configuration::PARAM_NAME_WIDGET_BASE_URL => '',
+            Configuration::PARAM_NAME_STATIC_BASE_URL => '',
         ]);
 
-        $this->assertSame('', $this->provider->getWidgetBaseUrl());
+        $this->assertSame('', $this->provider->getWidgetScriptUrl());
+    }
+
+    public function testGetWidgetScriptUrlDerivesFromLocalDevStaticBaseUrl(): void
+    {
+        $this->stubConfig([
+            Configuration::PARAM_NAME_STATIC_BASE_URL => 'http://localhost:4000',
+        ]);
+
+        $this->assertSame('http://localhost:4000/widget/loader.js', $this->provider->getWidgetScriptUrl());
     }
 
     /**

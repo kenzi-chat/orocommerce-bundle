@@ -30,8 +30,8 @@ class WebhookDispatcher
     /**
      * Whether webhook sync is enabled and fully configured for the given website.
      *
-     * Checks that sync_enabled is true AND all required config (webhook_url,
-     * secret, store_key) are present. Listeners use this to bail out early
+     * Checks that sync_enabled is true AND all required config (app_base_url,
+     * shared_secret, store_key) are present. Listeners use this to bail out early
      * before serializing payloads for websites not connected to Kenzi.
      */
     public function isEnabledForWebsite(?Website $website): bool
@@ -40,11 +40,11 @@ class WebhookDispatcher
             return false;
         }
 
-        $webhookUrl = $this->getConfig(Configuration::PARAM_NAME_WEBHOOK_URL, $website);
-        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SECRET, $website);
+        $appBaseUrl = $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL, null);
+        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET, $website);
         $storeKey = $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
 
-        return \is_string($webhookUrl) && $webhookUrl !== ''
+        return \is_string($appBaseUrl) && $appBaseUrl !== ''
             && \is_string($webhookSecret) && $webhookSecret !== ''
             && \is_string($storeKey) && $storeKey !== '';
     }
@@ -64,9 +64,10 @@ class WebhookDispatcher
     {
         $websiteId = $website?->getId();
 
-        $webhookUrl = $this->getConfig(Configuration::PARAM_NAME_WEBHOOK_URL, $website);
-        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SECRET, $website);
-        $storeKey = $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
+        $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL, null);
+        $webhookUrl = $appBaseUrl . '/orocommerce/webhooks';
+        $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET, $website);
+        $storeKey = (string) $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
 
         try {
             $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -128,16 +129,16 @@ class WebhookDispatcher
     }
 
     /**
-     * Compute HMAC-SHA256 signature: base64(HMAC-SHA256(secret, body)).
+     * Compute HMAC-SHA256 signature: base64(HMAC-SHA256(sharedSecret, body)).
      *
      * NOTE: The timestamp is NOT included in the signed payload. Including it
-     * (e.g. HMAC(secret, timestamp + "." + body)) would prevent replay attacks
+     * (e.g. HMAC(sharedSecret, timestamp + "." + body)) would prevent replay attacks
      * but requires a coordinated change on the Kenzi webhook receiver side.
      * Track via KZP-208 follow-up before going to production.
      */
-    private function sign(string $rawBody, string $secret): string
+    private function sign(string $rawBody, string $sharedSecret): string
     {
-        return base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
+        return base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true));
     }
 
     private function getConfig(string $paramName, ?Website $website): mixed

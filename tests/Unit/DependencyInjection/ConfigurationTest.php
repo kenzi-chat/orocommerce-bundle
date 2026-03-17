@@ -31,11 +31,11 @@ final class ConfigurationTest extends TestCase
         $expectedKeys = [
             Configuration::PARAM_NAME_WIDGET_ENABLED,
             Configuration::PARAM_NAME_SYNC_ENABLED,
-            Configuration::PARAM_NAME_WEBHOOK_URL,
-            Configuration::PARAM_NAME_SECRET,
+            Configuration::PARAM_NAME_APP_BASE_URL,
+            Configuration::PARAM_NAME_STATIC_BASE_URL,
+            Configuration::PARAM_NAME_SHARED_SECRET,
             Configuration::PARAM_NAME_WORKSPACE_ID,
             Configuration::PARAM_NAME_STORE_KEY,
-            Configuration::PARAM_NAME_WIDGET_BASE_URL,
             Configuration::PARAM_NAME_CONNECTED_AT,
         ];
 
@@ -52,14 +52,11 @@ final class ConfigurationTest extends TestCase
 
         $this->assertSame(false, $settings[Configuration::PARAM_NAME_WIDGET_ENABLED]['value']);
         $this->assertSame(false, $settings[Configuration::PARAM_NAME_SYNC_ENABLED]['value']);
-        $this->assertSame(
-            'https://app.kenzi.chat/orocommerce/webhooks',
-            $settings[Configuration::PARAM_NAME_WEBHOOK_URL]['value']
-        );
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_SECRET]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_APP_BASE_URL]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_STATIC_BASE_URL]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_SHARED_SECRET]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_WORKSPACE_ID]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_STORE_KEY]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_WIDGET_BASE_URL]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_CONNECTED_AT]['value']);
     }
 
@@ -84,13 +81,17 @@ final class ConfigurationTest extends TestCase
             Configuration::PARAM_NAME_SYNC_ENABLED,
             'kenzi_oro_commerce.sync_enabled',
         ];
-        yield 'webhook_url' => [
-            Configuration::PARAM_NAME_WEBHOOK_URL,
-            'kenzi_oro_commerce.webhook_url',
+        yield 'app_base_url' => [
+            Configuration::PARAM_NAME_APP_BASE_URL,
+            'kenzi_oro_commerce.app_base_url',
         ];
-        yield 'secret' => [
-            Configuration::PARAM_NAME_SECRET,
-            'kenzi_oro_commerce.secret',
+        yield 'static_base_url' => [
+            Configuration::PARAM_NAME_STATIC_BASE_URL,
+            'kenzi_oro_commerce.static_base_url',
+        ];
+        yield 'shared_secret' => [
+            Configuration::PARAM_NAME_SHARED_SECRET,
+            'kenzi_oro_commerce.shared_secret',
         ];
         yield 'workspace_id' => [
             Configuration::PARAM_NAME_WORKSPACE_ID,
@@ -99,10 +100,6 @@ final class ConfigurationTest extends TestCase
         yield 'store_key' => [
             Configuration::PARAM_NAME_STORE_KEY,
             'kenzi_oro_commerce.store_key',
-        ];
-        yield 'widget_base_url' => [
-            Configuration::PARAM_NAME_WIDGET_BASE_URL,
-            'kenzi_oro_commerce.widget_base_url',
         ];
         yield 'connected_at' => [
             Configuration::PARAM_NAME_CONNECTED_AT,

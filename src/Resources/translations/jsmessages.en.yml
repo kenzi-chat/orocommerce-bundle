@@ -3,7 +3,7 @@ kenzi_oro_commerce:
         button:
             disconnect: 'Disconnect'
         error:
-            no_webhook_url: 'Kenzi webhook URL is not configured. Set the Webhook URL in system configuration first.'
+            no_kenzi_origin: 'Kenzi is not configured. Run oro:platform:update or contact your system administrator.'
             popup_blocked: 'Please allow popups for this site to connect to Kenzi.'
             store_failed: 'Failed to store Kenzi connection. Please try again.'
             disconnect_failed: 'Failed to disconnect. Please try again.'

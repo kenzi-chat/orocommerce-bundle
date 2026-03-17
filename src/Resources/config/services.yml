@@ -3,6 +3,7 @@ services:
         class: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
         arguments:
             $configManager: '@oro_config.manager'
+            $router: '@router'
         tags:
             - { name: form.type }
 

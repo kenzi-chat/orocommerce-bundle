@@ -11,9 +11,6 @@ kenzi_oro_commerce:
             widget_enabled:
                 label: 'Enable Chat Widget'
                 tooltip: 'Show the Kenzi chat widget on the storefront. The store must be connected to Kenzi for the widget to appear.'
-            webhook_url:
-                label: 'Webhook URL'
-                tooltip: 'The Kenzi endpoint that receives order event webhooks. Only change this if using a non-production Kenzi instance.'
     connect:
         button:
             connect: 'Connect to Kenzi'
@@ -27,7 +24,7 @@ kenzi_oro_commerce:
             connect: 'Click to open Kenzi and link this website to your workspace.'
             select_website: 'Select a Website from the scope selector above to configure Kenzi for this storefront.'
         error:
-            no_webhook_url: 'Kenzi webhook URL is not configured. Set the Webhook URL in system configuration first.'
+            no_kenzi_origin: 'Kenzi is not configured. Run oro:platform:update or contact your system administrator.'
             popup_blocked: 'Please allow popups for this site to connect to Kenzi.'
             store_failed: 'Failed to store Kenzi connection. Please try again.'
             disconnect_failed: 'Failed to disconnect. Please try again.'

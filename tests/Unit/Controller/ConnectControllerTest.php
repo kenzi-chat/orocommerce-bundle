@@ -77,7 +77,7 @@ final class ConnectControllerTest extends TestCase
     {
         $request = $this->createJsonRequest([
             'workspace_id' => '',
-            'secret' => '',
+            'shared_secret' => '',
             'website_id' => 1,
         ]);
 
@@ -90,7 +90,7 @@ final class ConnectControllerTest extends TestCase
     {
         $request = $this->createJsonRequest([
             'workspace_id' => '   ',
-            'secret' => '   ',
+            'shared_secret' => '   ',
             'website_id' => 1,
         ]);
 
@@ -99,7 +99,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertSame(400, $response->getStatusCode());
     }
 
-    public function testConnectReturns400WhenMissingWebhookSecret(): void
+    public function testConnectReturns400WhenMissingSharedSecret(): void
     {
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_123',
@@ -119,7 +119,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_123',
-            'secret' => 'secret_abc',
+            'shared_secret' => 'secret_abc',
             'website_id' => 99,
         ]);
 
@@ -136,7 +136,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
-            'secret' => 'sec_1',
+            'shared_secret' => 'sec_1',
             'website_id' => 3,
         ]);
 
@@ -167,7 +167,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_nano_42',
-            'secret' => 'hmac_secret_xyz',
+            'shared_secret' => 'hmac_secret_xyz',
             'website_id' => 1,
         ]);
 
@@ -177,7 +177,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertJsonStringEqualsJsonString('{"status":"connected"}', $response->getContent());
 
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_nano_42', $website);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, 'hmac_secret_xyz', $website);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'hmac_secret_xyz', $website);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, 'b2b.acme-corp.com', $website);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, true, $website);
     }
@@ -197,7 +197,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => '  ws_padded  ',
-            'secret' => '  sec_padded  ',
+            'shared_secret' => '  sec_padded  ',
             'website_id' => 1,
         ]);
 
@@ -205,7 +205,7 @@ final class ConnectControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_padded', $website);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, 'sec_padded', $website);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'sec_padded', $website);
     }
 
     public function testConnectDerivesStoreKeyFromWebsiteUrl(): void
@@ -225,7 +225,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
-            'secret' => 'sec_1',
+            'shared_secret' => 'sec_1',
             'website_id' => 2,
         ]);
 
@@ -251,7 +251,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
-            'secret' => 'sec_1',
+            'shared_secret' => 'sec_1',
             'website_id' => 1,
         ]);
 
@@ -284,7 +284,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_global',
-            'secret' => 'sec_global',
+            'shared_secret' => 'sec_global',
             'website_id' => 0,
         ]);
 
@@ -294,7 +294,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertJsonStringEqualsJsonString('{"status":"connected"}', $response->getContent());
 
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_global', null);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, 'sec_global', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'sec_global', null);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, 'b2b.default-store.com', null);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, true, null);
     }
@@ -307,7 +307,7 @@ final class ConnectControllerTest extends TestCase
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
-            'secret' => 'sec_1',
+            'shared_secret' => 'sec_1',
             'website_id' => 0,
         ]);
 
@@ -379,7 +379,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertJsonStringEqualsJsonString('{"status":"disconnected"}', $response->getContent());
 
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, false, $website);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, '', $website);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, '', $website);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, '', $website);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, '', $website);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '', $website);
@@ -405,7 +405,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertJsonStringEqualsJsonString('{"status":"disconnected"}', $response->getContent());
 
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, false, null);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SECRET, '', null);
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, '', null);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, '', null);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_STORE_KEY, '', null);
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '', null);

@@ -14,11 +14,11 @@ class Configuration implements ConfigurationInterface
     public const ROOT_NODE = 'kenzi_oro_commerce';
     public const PARAM_NAME_WIDGET_ENABLED = 'widget_enabled';
     public const PARAM_NAME_SYNC_ENABLED = 'sync_enabled';
-    public const PARAM_NAME_WEBHOOK_URL = 'webhook_url';
-    public const PARAM_NAME_SECRET = 'secret';
+    public const PARAM_NAME_APP_BASE_URL = 'app_base_url';
+    public const PARAM_NAME_STATIC_BASE_URL = 'static_base_url';
+    public const PARAM_NAME_SHARED_SECRET = 'shared_secret';
     public const PARAM_NAME_WORKSPACE_ID = 'workspace_id';
     public const PARAM_NAME_STORE_KEY = 'store_key';
-    public const PARAM_NAME_WIDGET_BASE_URL = 'widget_base_url';
     public const PARAM_NAME_CONNECTED_AT = 'connected_at';
 
     #[\Override]
@@ -38,11 +38,15 @@ class Configuration implements ConfigurationInterface
                     'type' => 'boolean',
                     'value' => false,
                 ],
-                self::PARAM_NAME_WEBHOOK_URL => [
+                self::PARAM_NAME_APP_BASE_URL => [
                     'type' => 'scalar',
-                    'value' => 'https://app.kenzi.chat/orocommerce/webhooks',
+                    'value' => '',
                 ],
-                self::PARAM_NAME_SECRET => [
+                self::PARAM_NAME_STATIC_BASE_URL => [
+                    'type' => 'scalar',
+                    'value' => '',
+                ],
+                self::PARAM_NAME_SHARED_SECRET => [
                     'type' => 'scalar',
                     'value' => '',
                 ],
@@ -51,10 +55,6 @@ class Configuration implements ConfigurationInterface
                     'value' => '',
                 ],
                 self::PARAM_NAME_STORE_KEY => [
-                    'type' => 'scalar',
-                    'value' => '',
-                ],
-                self::PARAM_NAME_WIDGET_BASE_URL => [
                     'type' => 'scalar',
                     'value' => '',
                 ],

@@ -52,11 +52,11 @@ final class KenziOroCommerceExtensionTest extends TestCase
         $expectedKeys = [
             'widget_enabled',
             'sync_enabled',
-            'webhook_url',
-            'secret',
+            'app_base_url',
+            'static_base_url',
+            'shared_secret',
             'workspace_id',
             'store_key',
-            'widget_base_url',
             'connected_at',
         ];
 

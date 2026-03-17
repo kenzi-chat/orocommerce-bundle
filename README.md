@@ -25,16 +25,23 @@ Settings are managed through OroCommerce System Configuration (**Commerce > Kenz
 | Parameter | Scope | Description |
 |-----------|-------|-------------|
 | Enable Widget | Website | Show chat widget on storefront |
-| Webhook URL | Global | Kenzi endpoint for webhooks |
+
+### Environment-Seeded Fields (set by data migration, not editable in admin)
+
+| Parameter | Config Key | Scope | Default | Description |
+|-----------|-----------|-------|---------|-------------|
+| App Base URL | `app_base_url` | Global | `https://app.kenzi.chat` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/orocommerce/webhooks`) |
+| Static Base URL | `static_base_url` | Global | `https://static.kenzi.chat` | Kenzi static CDN — used to construct the widget loader URL (`{static_base_url}/widget/loader.js`) |
+
+Override with `KENZI_APP_BASE` and `KENZI_STATIC_BASE` environment variables for local development (both `http://localhost:4000`).
 
 ### Programmatic-Only Fields (set by connect flow)
 
 | Parameter | Scope | Description |
 |-----------|-------|-------------|
-| Widget Script URL | Website | Base URL for widget loader |
 | Workspace ID | Website | Kenzi workspace identifier |
 | Enable Sync | Website | Enable entity webhook dispatching |
-| Secret | Website | HMAC-SHA256 shared secret |
+| Shared Secret | Website | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup) |
 | Store Key | Website | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from the website URL. Sent as `X-Kenzi-Store-Key` header in webhooks so Kenzi can match the request to the right integration |
 | Connected At | Website | Timestamp of initial connection |
 

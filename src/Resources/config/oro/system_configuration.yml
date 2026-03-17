@@ -26,14 +26,6 @@ system_configuration:
                 label: kenzi_oro_commerce.system_configuration.fields.widget_enabled.label
                 tooltip: kenzi_oro_commerce.system_configuration.fields.widget_enabled.tooltip
                 required: false
-        kenzi_oro_commerce.webhook_url:
-            data_type: string
-            type: Symfony\Component\Form\Extension\Core\Type\TextType
-            priority: 10
-            options:
-                label: kenzi_oro_commerce.system_configuration.fields.webhook_url.label
-                tooltip: kenzi_oro_commerce.system_configuration.fields.webhook_url.tooltip
-
     tree:
         system_configuration:
             platform:
@@ -47,7 +39,6 @@ system_configuration:
                                         children:
                                             - kenzi_oro_commerce.connect_button
                                             - kenzi_oro_commerce.widget_enabled
-                                            - kenzi_oro_commerce.webhook_url
         website_configuration:
             commerce:
                 children:

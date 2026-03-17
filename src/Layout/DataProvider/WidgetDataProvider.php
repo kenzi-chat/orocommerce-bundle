@@ -10,7 +10,7 @@ use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 /**
  * Layout data provider for Kenzi Chat widget configuration.
  *
- * Reads widget_enabled, workspace_id, and widget_base_url from
+ * Reads widget_enabled, workspace_id, and static_base_url from
  * Oro system configuration (website-scoped on EE, global on CE).
  */
 class WidgetDataProvider
@@ -53,12 +53,17 @@ class WidgetDataProvider
     }
 
     /**
-     * Get the base URL for the widget loader script.
+     * Get the full URL for the widget loader script.
+     *
+     * Derived from the global static_base_url config (e.g. https://static.kenzi.chat
+     * in production, http://localhost:4000 in local dev).
      */
-    public function getWidgetBaseUrl(): string
+    public function getWidgetScriptUrl(): string
     {
-        return (string) $this->configManager->get(
-            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_WIDGET_BASE_URL)
+        $staticBaseUrl = (string) $this->configManager->get(
+            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_STATIC_BASE_URL)
         );
+
+        return $staticBaseUrl !== '' ? $staticBaseUrl . '/widget/loader.js' : '';
     }
 }

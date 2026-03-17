@@ -33,7 +33,7 @@ class ConnectController
     /**
      * Receives credentials from the connect popup postMessage handler.
      *
-     * The JavaScript sends: {workspace_id, secret, website_id}
+     * The JavaScript sends: {workspace_id, shared_secret, website_id}
      * The store_key is auto-derived from the Website entity's URL hostname.
      * All values are stored scoped to the specified Website entity.
      */
@@ -44,9 +44,9 @@ class ConnectController
         $data = json_decode($request->getContent(), true);
 
         $workspaceId = is_array($data) ? trim((string) ($data['workspace_id'] ?? '')) : '';
-        $secret = is_array($data) ? trim((string) ($data['secret'] ?? '')) : '';
+        $sharedSecret = is_array($data) ? trim((string) ($data['shared_secret'] ?? '')) : '';
 
-        if (!is_array($data) || $workspaceId === '' || $secret === '' || !isset($data['website_id'])) {
+        if (!is_array($data) || $workspaceId === '' || $sharedSecret === '' || !isset($data['website_id'])) {
             return new JsonResponse(['error' => 'Missing required fields'], 400);
         }
 
@@ -67,7 +67,7 @@ class ConnectController
         }
 
         $this->setConfig(Configuration::PARAM_NAME_WORKSPACE_ID, $workspaceId, $website);
-        $this->setConfig(Configuration::PARAM_NAME_SECRET, $secret, $website);
+        $this->setConfig(Configuration::PARAM_NAME_SHARED_SECRET, $sharedSecret, $website);
         $this->setConfig(Configuration::PARAM_NAME_STORE_KEY, $storeKey, $website);
         $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, (new \DateTimeImmutable())->format('c'), $website);
         $this->setConfig(Configuration::PARAM_NAME_SYNC_ENABLED, true, $website);
@@ -97,7 +97,7 @@ class ConnectController
         }
 
         $this->setConfig(Configuration::PARAM_NAME_SYNC_ENABLED, false, $website);
-        $this->setConfig(Configuration::PARAM_NAME_SECRET, '', $website);
+        $this->setConfig(Configuration::PARAM_NAME_SHARED_SECRET, '', $website);
         $this->setConfig(Configuration::PARAM_NAME_WORKSPACE_ID, '', $website);
         $this->setConfig(Configuration::PARAM_NAME_STORE_KEY, '', $website);
         $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, '', $website);

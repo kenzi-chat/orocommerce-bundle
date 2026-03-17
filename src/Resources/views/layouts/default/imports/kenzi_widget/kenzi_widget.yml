@@ -10,5 +10,5 @@ layout:
             options:
                 visible: '=data["kenzi_widget"].isWidgetEnabled()'
                 vars:
-                    widgetBaseUrl: '=data["kenzi_widget"].getWidgetBaseUrl()'
+                    widgetScriptUrl: '=data["kenzi_widget"].getWidgetScriptUrl()'
                     workspaceId: '=data["kenzi_widget"].getWorkspaceId()'
