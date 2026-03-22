@@ -1,5 +1,5 @@
 {
-    "name": "kenzi/orocommerce-bundle",
+    "name": "kenzi-chat/orocommerce-bundle",
     "description": "Connect your OroCommerce store to Kenzi for customer messaging powered by real-time order and customer data.",
     "keywords": ["Kenzi", "OroCommerce", "Chat", "Widget"],
     "type": "symfony-bundle",

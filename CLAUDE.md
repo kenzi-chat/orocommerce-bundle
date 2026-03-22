@@ -2,7 +2,7 @@
 
 ## Overview
 
-Standalone Composer package (`kenzi/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capabilities:
+Standalone Composer package (`kenzi-chat/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capabilities:
 
 1. **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
 2. **Connect Controller** — Admin-panel endpoints to connect/disconnect credentials from the Kenzi connect popup, scoped per-website
@@ -14,7 +14,7 @@ Entity listeners dispatch webhooks on order events (checkout completion and orde
 ## Installation
 
 ```bash
-composer require kenzi/orocommerce-bundle
+composer require kenzi-chat/orocommerce-bundle
 php bin/console cache:clear
 php bin/console oro:platform:update --force
 ```
@@ -185,7 +185,7 @@ composer install              # First time only — installs Oro + PHPUnit into 
 vendor/bin/phpunit            # Run all unit tests
 
 # Testing (via Oro app — run from kenzi-orocommerce/)
-php bin/phpunit vendor/kenzi/orocommerce-bundle/tests/ --no-configuration
+php bin/phpunit vendor/kenzi-chat/orocommerce-bundle/tests/ --no-configuration
 
 # Quality
 composer lint                 # Check code style (php-cs-fixer --dry-run)

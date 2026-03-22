@@ -9,7 +9,7 @@ Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.1 storefronts.
 ## Installation
 
 ```bash
-composer require kenzi/orocommerce-bundle
+composer require kenzi-chat/orocommerce-bundle
 php bin/console cache:clear
 php bin/console oro:platform:update --force
 ```
@@ -68,10 +68,10 @@ This installs `oro/commerce` and all transitive dependencies into the bundle's o
 
 ```bash
 cd kenzi-orocommerce
-php bin/phpunit vendor/kenzi/orocommerce-bundle/tests/ --no-configuration
+php bin/phpunit vendor/kenzi-chat/orocommerce-bundle/tests/ --no-configuration
 ```
 
-This uses the Oro app's PHPUnit and autoloader. The bundle is symlinked at `vendor/kenzi/orocommerce-bundle`. Use `--no-configuration` to skip the app's `phpunit.xml` and avoid booting the kernel.
+This uses the Oro app's PHPUnit and autoloader. The bundle is symlinked at `vendor/kenzi-chat/orocommerce-bundle`. Use `--no-configuration` to skip the app's `phpunit.xml` and avoid booting the kernel.
 
 ### Writing tests
 
