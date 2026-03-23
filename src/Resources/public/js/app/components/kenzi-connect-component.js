@@ -131,6 +131,8 @@ define(function(require) {
                 popup.postMessage({type: 'kenzi:ack'}, kenziOrigin);
                 self._cleanup();
 
+                // integration_id from the postMessage payload is not needed —
+                // Kenzi identifies this integration by platform + store key
                 self._storeCredentials({
                     workspace_id: data.workspace_id,
                     shared_secret: data.shared_secret,

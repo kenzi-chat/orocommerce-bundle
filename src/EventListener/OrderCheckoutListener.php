@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\EventListener;
 
-use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
-use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
+use Kenzi\OroCommerceBundle\Async\OrderWebhookTopic;
 use Oro\Bundle\OrderBundle\Entity\Order;
 use Oro\Component\Action\Event\ExtendableActionEvent;
+use Oro\Component\MessageQueue\Client\MessageProducerInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Listens for the checkout completion event and dispatches an order.created webhook to Kenzi.
+ * Listens for the checkout completion event and enqueues an order.created
+ * webhook message for asynchronous dispatch to Kenzi.
  *
  * The extendable_action.finish_checkout event is dispatched by OroCommerce's
  * PlaceOrder and Purchase workflow transitions. The event data contains:
@@ -21,15 +22,11 @@ use Psr\Log\LoggerInterface;
  *   - 'email'        => customer email string
  *
  * Access via $event->getData()->get('order'), NOT $event->getContext().
- *
- * The order's Website is passed to the dispatcher so config is read for the
- * correct website (each OroCommerce Website can have its own Kenzi connection).
  */
 class OrderCheckoutListener
 {
     public function __construct(
-        private readonly WebhookDispatcher $dispatcher,
-        private readonly OrderPayloadSerializer $serializer,
+        private readonly MessageProducerInterface $messageProducer,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -49,24 +46,16 @@ class OrderCheckoutListener
             return;
         }
 
-        $website = $order->getWebsite();
+        $orderId = $order->getId();
 
-        if (!$this->dispatcher->isEnabledForWebsite($website)) {
-            $this->logger->debug('Kenzi: order.created webhook skipped, sync not enabled for website', [
-                'website_id' => $website?->getId(),
-            ]);
-
+        /** @phpstan-ignore identical.alwaysFalse (getId() returns null before persistence) */
+        if ($orderId === null) {
             return;
         }
 
-        try {
-            $payload = $this->serializer->serialize($order, 'order.created');
-            $this->dispatcher->dispatch($payload, 'order.created', $order->getWebsite());
-        } catch (\Throwable $e) {
-            $this->logger->error('Kenzi: order.created webhook dispatch failed', [
-                'order_id' => $order->getId(),
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $this->messageProducer->send(
+            OrderWebhookTopic::getName(),
+            ['order_id' => $orderId, 'event' => 'order.created']
+        );
     }
 }

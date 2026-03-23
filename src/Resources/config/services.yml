@@ -2,17 +2,17 @@ services:
     kenzi_oro_commerce.form.type.connect_button:
         class: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
         arguments:
-            $configManager: '@oro_config.manager'
-            $router: '@router'
+            - '@oro_config.manager'
+            - '@router'
         tags:
             - { name: form.type }
 
     kenzi_oro_commerce.controller.connect:
         class: Kenzi\OroCommerceBundle\Controller\ConnectController
         arguments:
-            $configManager: '@oro_config.manager'
-            $doctrine: '@doctrine'
-            $aclHelper: '@oro_security.acl_helper'
+            - '@oro_config.manager'
+            - '@doctrine'
+            - '@oro_security.acl_helper'
         tags:
             - { name: controller.service_arguments }
 
@@ -33,18 +33,36 @@ services:
     kenzi_oro_commerce.webhook.dispatcher:
         class: Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher
         arguments:
-            $httpClient: '@http_client'
-            $configManager: '@oro_config.manager'
-            $logger: '@logger'
+            - '@http_client'
+            - '@oro_config.manager'
+            - '@logger'
         tags:
             - { name: monolog.logger, channel: kenzi_oro_commerce }
 
+    # Async — topic and processor for background webhook dispatch
+    kenzi_oro_commerce.async.topic.order_webhook:
+        class: Kenzi\OroCommerceBundle\Async\OrderWebhookTopic
+        tags:
+            - { name: oro_message_queue.topic }
+
+    kenzi_oro_commerce.async.processor.order_webhook:
+        class: Kenzi\OroCommerceBundle\Async\OrderWebhookProcessor
+        arguments:
+            - '@doctrine'
+            - '@kenzi_oro_commerce.webhook.dispatcher'
+            - '@kenzi_oro_commerce.serializer.order_payload'
+            - '@oro_message_queue.client.message_producer'
+            - '@logger'
+        tags:
+            - { name: oro_message_queue.client.message_processor }
+            - { name: monolog.logger, channel: kenzi_oro_commerce }
+
+    # Event listeners — produce async messages instead of dispatching directly
     kenzi_oro_commerce.event_listener.order_checkout:
         class: Kenzi\OroCommerceBundle\EventListener\OrderCheckoutListener
         arguments:
-            $dispatcher: '@kenzi_oro_commerce.webhook.dispatcher'
-            $serializer: '@kenzi_oro_commerce.serializer.order_payload'
-            $logger: '@logger'
+            - '@oro_message_queue.client.message_producer'
+            - '@logger'
         tags:
             - { name: monolog.logger, channel: kenzi_oro_commerce }
             - { name: kernel.event_listener, event: extendable_action.finish_checkout, method: onFinishCheckout, priority: -10 }
@@ -52,9 +70,6 @@ services:
     kenzi_oro_commerce.event_listener.order_update:
         class: Kenzi\OroCommerceBundle\EventListener\OrderUpdateListener
         arguments:
-            $dispatcher: '@kenzi_oro_commerce.webhook.dispatcher'
-            $serializer: '@kenzi_oro_commerce.serializer.order_payload'
-            $logger: '@logger'
+            - '@oro_message_queue.client.message_producer'
         tags:
-            - { name: monolog.logger, channel: kenzi_oro_commerce }
             - { name: doctrine.orm.entity_listener, entity: 'Oro\Bundle\OrderBundle\Entity\Order', event: postUpdate }

@@ -80,9 +80,10 @@ This dual-tree pattern matches Oro's own bundles (TaxBundle, CustomerBundle, Coo
 
 ```
 src/
+├── Async/                     # Message queue topic + processor for async webhook dispatch
 ├── Controller/                # Admin endpoints for connect/disconnect flow
 ├── DependencyInjection/       # Config tree + extension loader
-├── EventListener/             # Order event listeners → webhook dispatch
+├── EventListener/             # Order event listeners → produce async MQ messages
 ├── Layout/DataProvider/       # Layout data provider (reads config, exposes to Twig)
 ├── Migrations/Data/ORM/       # Data migrations (seeds base URLs from env vars)
 ├── Serializer/                # Order → webhook payload conversion
@@ -188,14 +189,39 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 
 The service is registered as `kenzi_oro_commerce.webhook.dispatcher` with the `kenzi_oro_commerce` monolog channel.
 
-### Event Listeners
+### Async Webhook Dispatch
 
-Two listeners wire OroCommerce order events to the webhook dispatcher:
+Order webhooks are dispatched asynchronously via Oro's Message Queue:
 
-- **`OrderCheckoutListener`** — Listens to `extendable_action.finish_checkout` (Symfony EventDispatcher). Extracts the Order from `$event->getData()->get('order')` and dispatches `order.created`. Runs at priority `-10` so the order is fully persisted first.
-- **`OrderUpdateListener`** — Doctrine entity listener on `Order::postUpdate`. Receives the Order as a type-hinted first parameter and dispatches `order.updated`. Uses `Doctrine\Persistence\Event\LifecycleEventArgs` (not ORM-specific args).
+1. **Event Listeners** produce lightweight messages (just `order_id` + `event` string):
+   - **`OrderCheckoutListener`** — Listens to `extendable_action.finish_checkout` at priority `-10`. Produces `order.created` message.
+   - **`OrderUpdateListener`** — Doctrine entity listener on `Order::postUpdate`. Produces `order.updated` message only when payload-relevant fields change (see Changeset Filtering below).
 
-Both pass `$order->getWebsite()` to the dispatcher for website-scoped config resolution.
+2. **`OrderWebhookTopic`** — Defines the message schema (`order_id: int`, `event: string`, `retry_count: int`) with OptionsResolver validation.
+
+3. **`OrderWebhookProcessor`** — Runs in Oro's background worker. Loads the Order, checks if sync is enabled for the order's Website, serializes the payload, and dispatches the webhook via `WebhookDispatcher`.
+
+This decoupling ensures checkout/order-update requests are never blocked by webhook HTTP calls. Messages persist in the queue across worker restarts, and Oro's MQ dashboard (`System > Message Queue`) provides visibility into pending/failed messages.
+
+### Retry Mechanism
+
+On transient failure (network error, non-2xx response), the processor schedules retries with increasing delays:
+
+- **Retry 1:** 10 seconds — covers brief network blips, load balancer hiccups
+- **Retry 2:** 60 seconds — covers short deployments, service restarts
+- **Retry 3:** 300 seconds (5 min) — covers longer outages, scaling events
+
+After 3 failed retries (~6 minute window), the message is permanently rejected with a `CRITICAL` log entry. Permanent errors like JSON encoding failures (`JsonException`) are rejected immediately without retry.
+
+The dispatcher throws exceptions on failure (both `TransportExceptionInterface` for network errors and `RuntimeException` for non-2xx responses) so the processor can differentiate transient vs permanent failures.
+
+### Changeset Filtering
+
+`OrderUpdateListener` checks `UnitOfWork::getEntityChangeSet()` before producing a message. A webhook is only triggered when at least one field that appears in the webhook payload changes. This prevents unnecessary dispatches when only internal/audit fields are modified.
+
+**Watched fields** (trigger webhook): `identifier`, `internalStatus`, `email`, `currency`, `subtotal`, `total`, `totalDiscounts`, `shippingMethod`, `shippingMethodType`, `shippingCost`, `estimatedShippingCostAmount`, `overriddenShippingCostAmount`, `poNumber`, `customerNotes`, `shipUntil`, `sourceEntityClass`, `sourceEntityId`, `sourceEntityIdentifier`, `customer`, `customerUser`, `billingAddress`, `shippingAddress`
+
+**Excluded fields** (never trigger webhook alone): `updatedAt`, `createdAt` — these change as a byproduct of any update. If only timestamps changed, Kenzi would receive identical substantive data. When a real field changes, the current timestamps are included in the payload naturally.
 
 ### Widget Injection Flow
 
@@ -205,7 +231,7 @@ Both pass `$order->getWebsite()` to the dispatcher for website-scoped config res
 
 ## Key Dependencies
 
-- **OroCommerce 6.1** (`oro/commerce: 6.1.*`) — Platform framework
+- **OroCommerce 6.0+** (`oro/commerce: ^6.0`) — Platform framework
 - **Symfony 6.4** — Config/DI components
 - **Oro ConfigBundle** — System configuration management (CE: global scope; EE: website-scoped via `WebsiteScopeManager`)
 - **PHP 8.1+** — Required for typed properties, nullsafe operator, named arguments

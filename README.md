@@ -1,10 +1,10 @@
 # Kenzi OroCommerce Bundle
 
-Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.1 storefronts.
+Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.0+ storefronts.
 
 - **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
 - **Connect Flow** — Admin controller to store/clear credentials from the Kenzi connect popup, scoped per-website
-- **Order Webhooks** — Listens for order checkout and update events, serializes Order entities into JSON payloads, and dispatches them as HMAC-signed webhooks to Kenzi
+- **Order Webhooks** — Listens for order checkout and update events, enqueues messages via Oro's Message Queue, and asynchronously serializes and dispatches HMAC-signed webhooks to Kenzi. Retries failed dispatches 3 times with backoff (10s, 60s, 5min). Only triggers on payload-relevant field changes — timestamp-only updates are ignored.
 
 ## Installation
 
@@ -57,7 +57,7 @@ The bundle defines parameters in both `system_configuration` and `website_config
 ## Requirements
 
 - PHP 8.1+
-- OroCommerce 6.1
+- OroCommerce 6.0+
 
 ## Testing
 
@@ -86,6 +86,9 @@ Tests are pure PHPUnit unit tests — no Oro kernel, no database. Oro services l
 
 ```
 tests/Unit/
+├── Async/
+│   ├── OrderWebhookProcessorTest.php
+│   └── OrderWebhookTopicTest.php
 ├── BundleTest.php
 ├── Controller/
 │   └── ConnectControllerTest.php

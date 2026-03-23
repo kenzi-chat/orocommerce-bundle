@@ -413,6 +413,7 @@ final class ConnectControllerTest extends TestCase
 
     // -- Helpers --
 
+    /** @param array<string, mixed> $data */
     private function createJsonRequest(array $data): Request
     {
         return new Request([], [], [], [], [], [], json_encode($data));

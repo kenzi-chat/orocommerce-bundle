@@ -15,11 +15,9 @@ use Oro\Bundle\ConfigBundle\Config\ConfigManager;
  */
 class WidgetDataProvider
 {
-    private ConfigManager $configManager;
-
-    public function __construct(ConfigManager $configManager)
-    {
-        $this->configManager = $configManager;
+    public function __construct(
+        private readonly ConfigManager $configManager,
+    ) {
     }
 
     /**

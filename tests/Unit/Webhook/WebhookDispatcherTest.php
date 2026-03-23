@@ -126,13 +126,16 @@ final class WebhookDispatcherTest extends TestCase
     /**
      * @dataProvider non2xxStatusCodeProvider
      */
-    public function testDispatchDoesNotThrowOnNon2xxResponse(int $statusCode): void
+    public function testDispatchThrowsOnNon2xxResponse(int $statusCode): void
     {
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock($statusCode));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/HTTP ' . $statusCode . '/');
 
         $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
@@ -159,33 +162,22 @@ final class WebhookDispatcherTest extends TestCase
         $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchLogsErrorOnTransportExceptionFromRequest(): void
+    public function testDispatchThrowsTransportExceptionFromRequest(): void
     {
-        $logger = $this->createMock(LoggerInterface::class);
-        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
-
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
 
         $exception = new class ('Connection timed out') extends \RuntimeException implements TransportExceptionInterface {};
         $this->httpClient->method('request')->willThrowException($exception);
 
-        $logger->expects($this->once())
-            ->method('error')
-            ->with('Webhook dispatch failed', $this->callback(function (array $context) {
-                return $context['error'] === 'Connection timed out'
-                    && $context['website_id'] === 1
-                    && $context['event'] === 'order.created';
-            }));
+        $this->expectException(TransportExceptionInterface::class);
+        $this->expectExceptionMessage('Connection timed out');
 
-        $dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchLogsErrorOnTransportExceptionFromGetStatusCode(): void
+    public function testDispatchThrowsTransportExceptionFromGetStatusCode(): void
     {
-        $logger = $this->createMock(LoggerInterface::class);
-        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
-
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
 
@@ -194,34 +186,21 @@ final class WebhookDispatcherTest extends TestCase
         $response->method('getStatusCode')->willThrowException($exception);
         $this->httpClient->method('request')->willReturn($response);
 
-        $logger->expects($this->once())
-            ->method('error')
-            ->with('Webhook dispatch failed', $this->callback(function (array $context) {
-                return $context['error'] === 'DNS resolution failed'
-                    && $context['website_id'] === 1
-                    && $context['event'] === 'order.created';
-            }));
+        $this->expectException(TransportExceptionInterface::class);
+        $this->expectExceptionMessage('DNS resolution failed');
 
-        $dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
     }
 
-    public function testDispatchLogsErrorOnJsonEncodingFailure(): void
+    public function testDispatchThrowsJsonExceptionOnEncodingFailure(): void
     {
-        $logger = $this->createMock(LoggerInterface::class);
-        $dispatcher = new WebhookDispatcher($this->httpClient, $this->configManager, $logger);
-
         $website = $this->createWebsiteMock(1);
         $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->never())->method('request');
 
-        $logger->expects($this->once())
-            ->method('error')
-            ->with('Webhook dispatch failed: JSON encoding error', $this->callback(function (array $context) {
-                return $context['website_id'] === 1
-                    && $context['event'] === 'order.created';
-            }));
+        $this->expectException(\JsonException::class);
 
-        $dispatcher->dispatch(['bad' => \NAN], 'order.created', $website);
+        $this->dispatcher->dispatch(['bad' => \NAN], 'order.created', $website);
     }
 
     public function testEachDispatchGeneratesUniqueDeliveryId(): void

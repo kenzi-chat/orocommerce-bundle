@@ -4,54 +4,43 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\EventListener;
 
+use Kenzi\OroCommerceBundle\Async\OrderWebhookTopic;
 use Kenzi\OroCommerceBundle\EventListener\OrderCheckoutListener;
-use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
-use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\OrderBundle\Entity\Order;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
 use Oro\Component\Action\Event\ExtendableActionEvent;
 use Oro\Component\Action\Model\AbstractStorage;
+use Oro\Component\MessageQueue\Client\MessageProducerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
 final class OrderCheckoutListenerTest extends TestCase
 {
-    /** @var WebhookDispatcher&MockObject */
-    private MockObject $dispatcher;
-    /** @var OrderPayloadSerializer&MockObject */
-    private MockObject $serializer;
+    /** @var MessageProducerInterface&MockObject */
+    private MockObject $messageProducer;
     private OrderCheckoutListener $listener;
 
     protected function setUp(): void
     {
-        $this->dispatcher = $this->createMock(WebhookDispatcher::class);
-        $this->serializer = $this->createMock(OrderPayloadSerializer::class);
+        $this->messageProducer = $this->createMock(MessageProducerInterface::class);
 
         $this->listener = new OrderCheckoutListener(
-            $this->dispatcher,
-            $this->serializer,
+            $this->messageProducer,
             new NullLogger(),
         );
     }
 
-    public function testDispatchesOrderCreatedWebhook(): void
+    public function testSendsOrderCreatedMessage(): void
     {
-        $website = $this->createMock(Website::class);
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order->method('getId')->willReturn(42);
 
-        $this->dispatcher->method('isEnabledForWebsite')->with($website)->willReturn(true);
-
-        $payload = ['event' => 'order.created', 'timestamp' => 1700000000, 'data' => ['id' => 42]];
-        $this->serializer->expects($this->once())
-            ->method('serialize')
-            ->with($order, 'order.created')
-            ->willReturn($payload);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($payload, 'order.created', $website);
+        $this->messageProducer->expects($this->once())
+            ->method('send')
+            ->with(
+                OrderWebhookTopic::getName(),
+                ['order_id' => 42, 'event' => 'order.created']
+            );
 
         $event = $this->createEventWithOrder($order);
         $this->listener->onFinishCheckout($event);
@@ -61,8 +50,7 @@ final class OrderCheckoutListenerTest extends TestCase
     {
         $event = new ExtendableActionEvent(null);
 
-        $this->serializer->expects($this->never())->method('serialize');
-        $this->dispatcher->expects($this->never())->method('dispatch');
+        $this->messageProducer->expects($this->never())->method('send');
 
         $this->listener->onFinishCheckout($event);
     }
@@ -74,8 +62,7 @@ final class OrderCheckoutListenerTest extends TestCase
 
         $event = new ExtendableActionEvent($data);
 
-        $this->serializer->expects($this->never())->method('serialize');
-        $this->dispatcher->expects($this->never())->method('dispatch');
+        $this->messageProducer->expects($this->never())->method('send');
 
         $this->listener->onFinishCheckout($event);
     }
@@ -87,75 +74,49 @@ final class OrderCheckoutListenerTest extends TestCase
 
         $event = new ExtendableActionEvent($data);
 
-        $this->serializer->expects($this->never())->method('serialize');
-        $this->dispatcher->expects($this->never())->method('dispatch');
+        $this->messageProducer->expects($this->never())->method('send');
 
         $this->listener->onFinishCheckout($event);
     }
 
-    public function testSkipsWhenWebsiteNotEnabledForKenzi(): void
+    public function testSkipsWhenOrderIdIsNull(): void
     {
-        $website = $this->createMock(Website::class);
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order->method('getId')->willReturn(null);
 
-        $this->dispatcher->method('isEnabledForWebsite')
-            ->with($website)
-            ->willReturn(false);
-
-        $this->serializer->expects($this->never())->method('serialize');
-        $this->dispatcher->expects($this->never())->method('dispatch');
+        $this->messageProducer->expects($this->never())->method('send');
 
         $event = $this->createEventWithOrder($order);
         $this->listener->onFinishCheckout($event);
     }
 
-    public function testPassesOrderWebsiteToDispatcher(): void
+    public function testSendsCorrectOrderId(): void
     {
-        $website = $this->createMock(Website::class);
-        $website->method('getId')->willReturn(7);
-
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order->method('getId')->willReturn(99);
 
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.created', $this->identicalTo($website));
+        $this->messageProducer->expects($this->once())
+            ->method('send')
+            ->with(
+                $this->anything(),
+                $this->callback(fn(array $body) => $body['order_id'] === 99)
+            );
 
         $event = $this->createEventWithOrder($order);
         $this->listener->onFinishCheckout($event);
     }
 
-    public function testPassesNullWebsiteWhenOrderHasNoWebsite(): void
+    public function testAlwaysSendsOrderCreatedEventType(): void
     {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
+        $order->method('getId')->willReturn(1);
 
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.created', null);
-
-        $event = $this->createEventWithOrder($order);
-        $this->listener->onFinishCheckout($event);
-    }
-
-    public function testCatchesSerializerException(): void
-    {
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
-        $order->method('getId')->willReturn(42);
-
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')
-            ->willThrowException(new \RuntimeException('Serialization failed'));
-
-        $this->dispatcher->expects($this->never())->method('dispatch');
+        $this->messageProducer->expects($this->once())
+            ->method('send')
+            ->with(
+                $this->anything(),
+                $this->callback(fn(array $body) => $body['event'] === 'order.created')
+            );
 
         $event = $this->createEventWithOrder($order);
         $this->listener->onFinishCheckout($event);

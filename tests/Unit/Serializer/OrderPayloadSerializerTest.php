@@ -35,7 +35,6 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertSame('order.created', $result['event']);
         $this->assertSame(1700000000, $result['timestamp']);
         $this->assertArrayHasKey('data', $result);
-        $this->assertIsArray($result['data']);
     }
 
     public function testSerializeUsesCurrentTimeWhenTimestampIsNull(): void

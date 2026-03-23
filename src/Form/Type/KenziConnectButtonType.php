@@ -20,6 +20,8 @@ use Symfony\Component\Routing\RouterInterface;
  * The actual credentials are stored by ConnectController via AJAX.
  * The form view receives connection state so the Twig template can
  * show the appropriate UI (connect button vs. connected status).
+ *
+ * @extends AbstractType<null>
  */
 class KenziConnectButtonType extends AbstractType
 {

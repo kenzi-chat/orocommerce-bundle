@@ -56,9 +56,17 @@ class WebhookDispatcher
      * This method handles signing, sending, and logging — it does not gate
      * on configuration.
      *
+     * Throws JsonException on encoding failure (permanent — not retryable).
+     * Throws TransportExceptionInterface on network failure (transient — retryable).
+     * Throws RuntimeException on non-2xx response (transient — retryable).
+     * Callers (OrderWebhookProcessor) use these to decide retry vs reject.
+     *
      * @param array<string, mixed> $payload  Pre-serialized payload from OrderPayloadSerializer
      * @param non-empty-string     $event    Event name (e.g. "order.created")
      * @param Website|null         $website  Website to scope config reads to (null = global)
+     *
+     * @throws \JsonException
+     * @throws TransportExceptionInterface
      */
     public function dispatch(array $payload, string $event, ?Website $website = null): void
     {
@@ -69,63 +77,43 @@ class WebhookDispatcher
         $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET, $website);
         $storeKey = (string) $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
 
-        try {
-            $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
-            $this->logger->error('Webhook dispatch failed: JSON encoding error', [
-                'website_id' => $websiteId,
-                'event' => $event,
-                'error' => $e->getMessage(),
-            ]);
-
-            return;
-        }
+        $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
         $signature = $this->sign($rawBody, $webhookSecret);
         $deliveryId = Uuid::v4()->toRfc4122();
         $timestamp = (string) time();
 
-        try {
-            $response = $this->httpClient->request('POST', $webhookUrl, [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'x-kenzi-signature' => $signature,
-                    'x-kenzi-delivery-id' => $deliveryId,
-                    'x-kenzi-timestamp' => $timestamp,
-                    'x-kenzi-store-key' => $storeKey,
-                    'x-kenzi-event' => $event,
-                ],
-                'body' => $rawBody,
-                'timeout' => 10,
-            ]);
+        $response = $this->httpClient->request('POST', $webhookUrl, [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'x-kenzi-signature' => $signature,
+                'x-kenzi-delivery-id' => $deliveryId,
+                'x-kenzi-timestamp' => $timestamp,
+                'x-kenzi-store-key' => $storeKey,
+                'x-kenzi-event' => $event,
+            ],
+            'body' => $rawBody,
+            'timeout' => 10,
+        ]);
 
-            $statusCode = $response->getStatusCode();
+        $statusCode = $response->getStatusCode();
 
-            if ($statusCode >= 200 && $statusCode < 300) {
-                $this->logger->info('Webhook dispatched successfully', [
-                    'website_id' => $websiteId,
-                    'event' => $event,
-                    'delivery_id' => $deliveryId,
-                    'status_code' => $statusCode,
-                ]);
-
-                return;
-            }
-
-            $this->logger->warning('Webhook endpoint returned non-2xx response', [
+        if ($statusCode >= 200 && $statusCode < 300) {
+            $this->logger->info('Webhook dispatched successfully', [
                 'website_id' => $websiteId,
                 'event' => $event,
                 'delivery_id' => $deliveryId,
                 'status_code' => $statusCode,
             ]);
-        } catch (TransportExceptionInterface $e) {
-            $this->logger->error('Webhook dispatch failed', [
-                'website_id' => $websiteId,
-                'event' => $event,
-                'delivery_id' => $deliveryId,
-                'error' => $e->getMessage(),
-            ]);
+
+            return;
         }
+
+        throw new \RuntimeException(sprintf(
+            'Webhook endpoint returned HTTP %d (delivery: %s)',
+            $statusCode,
+            $deliveryId,
+        ));
     }
 
     /**

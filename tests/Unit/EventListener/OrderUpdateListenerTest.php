@@ -4,143 +4,206 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\EventListener;
 
+use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\UnitOfWork;
 use Doctrine\Persistence\Event\LifecycleEventArgs;
+use Kenzi\OroCommerceBundle\Async\OrderWebhookTopic;
 use Kenzi\OroCommerceBundle\EventListener\OrderUpdateListener;
-use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
-use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\OrderBundle\Entity\Order;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
+use Oro\Component\MessageQueue\Client\MessageProducerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\NullLogger;
 
 final class OrderUpdateListenerTest extends TestCase
 {
-    /** @var WebhookDispatcher&MockObject */
-    private MockObject $dispatcher;
-    /** @var OrderPayloadSerializer&MockObject */
-    private MockObject $serializer;
+    /** @var MessageProducerInterface&MockObject */
+    private MockObject $messageProducer;
     private OrderUpdateListener $listener;
 
     protected function setUp(): void
     {
-        $this->dispatcher = $this->createMock(WebhookDispatcher::class);
-        $this->serializer = $this->createMock(OrderPayloadSerializer::class);
+        $this->messageProducer = $this->createMock(MessageProducerInterface::class);
 
         $this->listener = new OrderUpdateListener(
-            $this->dispatcher,
-            $this->serializer,
-            new NullLogger(),
+            $this->messageProducer,
         );
     }
 
-    public function testDispatchesOrderUpdatedWebhook(): void
+    // -- Sends message when watched fields change ─────────────────────
+
+    public function testSendsMessageWhenStatusChanges(): void
     {
-        $website = $this->createMock(Website::class);
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())
+            ->method('send')
+            ->with(
+                OrderWebhookTopic::getName(),
+                ['order_id' => 42, 'event' => 'order.updated']
+            );
+
+        $args = $this->createArgsWithChangeSet($order, ['internalStatus' => ['open', 'shipped']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenTotalChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['total' => [99.99, 109.99]]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenCustomerChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['customer' => [null, 'customer_obj']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenShippingAddressChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['shippingAddress' => ['old', 'new']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    // -- Skips when only non-watched fields change ────────────────────
+
+    public function testSkipsWhenOnlyUpdatedAtChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['updatedAt' => ['2026-01-01', '2026-01-02']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenOnlyCreatedAtChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['createdAt' => ['2026-01-01', '2026-01-02']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenOnlyTimestampsChange(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'updatedAt' => ['2026-01-01', '2026-01-02'],
+            'createdAt' => ['2026-01-01', '2026-01-02'],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenUnwatchedFieldChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['someInternalField' => ['old', 'new']]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenNoChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, []);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    // -- Mixed changes ────────────────────────────────────────────────
+
+    public function testSendsWhenWatchedFieldChangesAlongsideTimestamp(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'updatedAt' => ['2026-01-01', '2026-01-02'],
+            'subtotal' => [99.99, 109.99],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    // -- Null order ID ────────────────────────────────────────────────
+
+    public function testSkipsWhenOrderIdIsNull(): void
+    {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order->method('getId')->willReturn(null);
 
-        $this->dispatcher->method('isEnabledForWebsite')->with($website)->willReturn(true);
-
-        $payload = ['event' => 'order.updated', 'timestamp' => 1700000000, 'data' => ['id' => 42]];
-        $this->serializer->expects($this->once())
-            ->method('serialize')
-            ->with($order, 'order.updated')
-            ->willReturn($payload);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($payload, 'order.updated', $website);
+        $this->messageProducer->expects($this->never())->method('send');
 
         $args = $this->createMock(LifecycleEventArgs::class);
         $this->listener->postUpdate($order, $args);
     }
 
-    public function testSkipsWhenWebsiteNotEnabledForKenzi(): void
+    // -- Event type ───────────────────────────────────────────────────
+
+    public function testAlwaysSendsOrderUpdatedEventType(): void
     {
-        $website = $this->createMock(Website::class);
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order = $this->createOrderMock(1);
 
-        $this->dispatcher->method('isEnabledForWebsite')
-            ->with($website)
-            ->willReturn(false);
+        $this->messageProducer->expects($this->once())
+            ->method('send')
+            ->with(
+                $this->anything(),
+                $this->callback(fn(array $body) => $body['event'] === 'order.updated')
+            );
 
-        $this->serializer->expects($this->never())->method('serialize');
-        $this->dispatcher->expects($this->never())->method('dispatch');
-
-        $args = $this->createMock(LifecycleEventArgs::class);
+        $args = $this->createArgsWithChangeSet($order, ['email' => ['old@test.com', 'new@test.com']]);
         $this->listener->postUpdate($order, $args);
     }
 
-    public function testPassesOrderWebsiteToDispatcher(): void
+    // -- Helpers ──────────────────────────────────────────────────────
+
+    /** @return Order&MockObject */
+    private function createOrderMock(int $id): MockObject
     {
-        $website = $this->createMock(Website::class);
-        $website->method('getId')->willReturn(3);
-
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
+        $order->method('getId')->willReturn($id);
 
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.updated', $this->identicalTo($website));
-
-        $args = $this->createMock(LifecycleEventArgs::class);
-        $this->listener->postUpdate($order, $args);
+        return $order;
     }
 
-    public function testPassesNullWebsiteWhenOrderHasNoWebsite(): void
+    /**
+     * @param array<string, array{mixed, mixed}> $changeSet
+     * @return LifecycleEventArgs<\Doctrine\ORM\EntityManagerInterface>
+     */
+    private function createArgsWithChangeSet(Order $order, array $changeSet): LifecycleEventArgs
     {
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
+        $uow = $this->createMock(UnitOfWork::class);
+        $uow->method('getEntityChangeSet')
+            ->with($order)
+            ->willReturn($changeSet);
 
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.updated', null);
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->method('getUnitOfWork')->willReturn($uow);
 
         $args = $this->createMock(LifecycleEventArgs::class);
-        $this->listener->postUpdate($order, $args);
-    }
+        $args->method('getObjectManager')->willReturn($em);
 
-    public function testUsesCorrectEventType(): void
-    {
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
-
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-
-        $this->serializer->expects($this->once())
-            ->method('serialize')
-            ->with($order, 'order.updated')
-            ->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.updated', $this->anything());
-
-        $args = $this->createMock(LifecycleEventArgs::class);
-        $this->listener->postUpdate($order, $args);
-    }
-
-    public function testCatchesSerializerException(): void
-    {
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
-        $order->method('getId')->willReturn(99);
-
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
-        $this->serializer->method('serialize')
-            ->willThrowException(new \RuntimeException('Serialization failed'));
-
-        $this->dispatcher->expects($this->never())->method('dispatch');
-
-        $args = $this->createMock(LifecycleEventArgs::class);
-        $this->listener->postUpdate($order, $args);
+        return $args;
     }
 }

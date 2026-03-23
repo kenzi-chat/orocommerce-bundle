@@ -41,7 +41,11 @@ class ConnectController
     #[AclAncestor('oro_config_system')]
     public function connect(Request $request): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        try {
+            $data = json_decode($request->getContent(), associative: true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return new JsonResponse(['error' => 'Invalid JSON'], 400);
+        }
 
         $workspaceId = is_array($data) ? trim((string) ($data['workspace_id'] ?? '')) : '';
         $sharedSecret = is_array($data) ? trim((string) ($data['shared_secret'] ?? '')) : '';
@@ -83,7 +87,11 @@ class ConnectController
     #[AclAncestor('oro_config_system')]
     public function disconnect(Request $request): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        try {
+            $data = json_decode($request->getContent(), associative: true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return new JsonResponse(['error' => 'Invalid JSON'], 400);
+        }
 
         if (!is_array($data) || !isset($data['website_id'])) {
             return new JsonResponse(['error' => 'Missing required fields'], 400);
@@ -108,8 +116,10 @@ class ConnectController
 
     private function findWebsite(int $id): ?Website
     {
-        $qb = $this->doctrine->getRepository(Website::class)
-            ->createQueryBuilder('w')
+        /** @var \Doctrine\ORM\EntityRepository<Website> $repository */
+        $repository = $this->doctrine->getRepository(Website::class);
+
+        $qb = $repository->createQueryBuilder('w')
             ->where('w.id = :id')
             ->setParameter('id', $id);
 

@@ -59,8 +59,8 @@ class OrderPayloadSerializer
             'source_entity_class' => $order->getSourceEntityClass(),
             'source_entity_id' => $order->getSourceEntityId(),
             'source_entity_identifier' => $order->getSourceEntityIdentifier(),
-            'created_at' => $order->getCreatedAt()?->format('c'),
-            'updated_at' => $order->getUpdatedAt()?->format('c'),
+            'created_at' => $order->getCreatedAt()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
+            'updated_at' => $order->getUpdatedAt()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
         ];
 
         $customer = $order->getCustomer();
@@ -165,7 +165,7 @@ class OrderPayloadSerializer
     {
         return [
             'id' => $lineItem->getId(),
-            'product_id' => $lineItem->getProduct()?->getId(),
+            'product_id' => $lineItem->getProduct()?->getId(), /** @phpstan-ignore nullsafe.neverNull */
             'product_sku' => $lineItem->getProductSku(),
             'product_name' => $lineItem->getProductName(),
             'free_form_product' => $lineItem->getFreeFormProduct(),
@@ -175,7 +175,7 @@ class OrderPayloadSerializer
             'currency' => $lineItem->getCurrency(),
             'price_type' => $lineItem->getPriceType(),
             'comment' => $lineItem->getComment(),
-            'ship_by' => $lineItem->getShipBy()?->format('c'),
+            'ship_by' => $lineItem->getShipBy()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
             'shipping_method' => $lineItem->getShippingMethod(),
             'shipping_method_type' => $lineItem->getShippingMethodType(),
             'shipping_estimate_amount' => $this->formatMoney($lineItem->getShippingEstimateAmount()),
@@ -186,6 +186,7 @@ class OrderPayloadSerializer
     {
         $internalStatus = $order->getInternalStatus();
 
+        /** @phpstan-ignore identical.alwaysFalse (Oro PHPDoc says non-null, but null is possible for new orders) */
         if ($internalStatus === null) {
             return 'unknown';
         }
@@ -193,9 +194,9 @@ class OrderPayloadSerializer
         return (string) $internalStatus->getId();
     }
 
-    private function formatMoney(float|int|null $value): ?string
+    private function formatMoney(float|int|string|null $value): ?string
     {
-        if ($value === null) {
+        if ($value === null || !is_finite((float) $value)) {
             return null;
         }
 
