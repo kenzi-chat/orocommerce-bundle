@@ -20,7 +20,9 @@ use Symfony\Component\HttpFoundation\Request;
 final class ConnectControllerTest extends TestCase
 {
     /** @var ConfigManager&MockObject */
-    private MockObject $configManager;
+    private MockObject $globalConfigManager;
+    /** @var ConfigManager&MockObject */
+    private MockObject $scopedConfigManager;
     /** @var ManagerRegistry&MockObject */
     private MockObject $doctrine;
     /** @var AclHelper&MockObject */
@@ -29,12 +31,14 @@ final class ConnectControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->configManager = $this->createMock(ConfigManager::class);
+        $this->globalConfigManager = $this->createMock(ConfigManager::class);
+        $this->scopedConfigManager = $this->createMock(ConfigManager::class);
         $this->doctrine = $this->createMock(ManagerRegistry::class);
         $this->aclHelper = $this->createMock(AclHelper::class);
 
         $this->controller = new ConnectController(
-            $this->configManager,
+            $this->globalConfigManager,
+            $this->scopedConfigManager,
             $this->doctrine,
             $this->aclHelper,
         );
@@ -132,7 +136,7 @@ final class ConnectControllerTest extends TestCase
     {
         $website = $this->createWebsiteMock(3);
         $this->stubWebsiteLookup($website);
-        $this->stubWebsiteUrl($website, '');
+        $this->stubWebsiteUrl($this->scopedConfigManager, $website, '');
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
@@ -149,21 +153,23 @@ final class ConnectControllerTest extends TestCase
         );
     }
 
-    // -- Connect: success --
+    // -- Connect: success (EE — website scope) --
 
     public function testConnectSuccessfully(): void
     {
         $website = $this->createWebsiteMock(1);
         $this->stubWebsiteLookup($website);
-        $this->stubWebsiteUrl($website, 'https://b2b.acme-corp.com/store');
+        $this->stubWebsiteUrl($this->scopedConfigManager, $website, 'https://b2b.acme-corp.com/store');
 
         $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
+        $this->scopedConfigManager->expects($this->exactly(5))
             ->method('set')
             ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
             });
-        $this->configManager->expects($this->once())->method('flush');
+        $this->scopedConfigManager->expects($this->once())->method('flush');
+        $this->globalConfigManager->expects($this->never())->method('set');
+        $this->globalConfigManager->expects($this->never())->method('flush');
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_nano_42',
@@ -186,14 +192,14 @@ final class ConnectControllerTest extends TestCase
     {
         $website = $this->createWebsiteMock(1);
         $this->stubWebsiteLookup($website);
-        $this->stubWebsiteUrl($website, 'https://store.test');
+        $this->stubWebsiteUrl($this->scopedConfigManager, $website, 'https://store.test');
 
         $setCalls = [];
-        $this->configManager->method('set')
+        $this->scopedConfigManager->method('set')
             ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
             });
-        $this->configManager->method('flush');
+        $this->scopedConfigManager->method('flush');
 
         $request = $this->createJsonRequest([
             'workspace_id' => '  ws_padded  ',
@@ -212,16 +218,16 @@ final class ConnectControllerTest extends TestCase
     {
         $website = $this->createWebsiteMock(2);
         $this->stubWebsiteLookup($website);
-        $this->stubWebsiteUrl($website, 'https://shop.example.org/en');
+        $this->stubWebsiteUrl($this->scopedConfigManager, $website, 'https://shop.example.org/en');
 
         $capturedStoreKey = null;
-        $this->configManager->method('set')
+        $this->scopedConfigManager->method('set')
             ->willReturnCallback(function (string $key, $value) use (&$capturedStoreKey) {
                 if ($key === Configuration::getConfigKeyByName(Configuration::PARAM_NAME_STORE_KEY)) {
                     $capturedStoreKey = $value;
                 }
             });
-        $this->configManager->method('flush');
+        $this->scopedConfigManager->method('flush');
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
@@ -238,16 +244,16 @@ final class ConnectControllerTest extends TestCase
     {
         $website = $this->createWebsiteMock(1);
         $this->stubWebsiteLookup($website);
-        $this->stubWebsiteUrl($website, 'https://store.test');
+        $this->stubWebsiteUrl($this->scopedConfigManager, $website, 'https://store.test');
 
         $capturedConnectedAt = null;
-        $this->configManager->method('set')
+        $this->scopedConfigManager->method('set')
             ->willReturnCallback(function (string $key, $value) use (&$capturedConnectedAt) {
                 if ($key === Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CONNECTED_AT)) {
                     $capturedConnectedAt = $value;
                 }
             });
-        $this->configManager->method('flush');
+        $this->scopedConfigManager->method('flush');
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_1',
@@ -265,22 +271,24 @@ final class ConnectControllerTest extends TestCase
         $this->assertLessThan(5, $diff, 'connected_at should be within 5 seconds of now');
     }
 
-    // -- Connect: global scope (CE) --
+    // -- Connect: success (CE — global scope) --
 
     public function testConnectWithGlobalScope(): void
     {
-        // website_id=0 means global scope — no website entity lookup, null passed to ConfigManager
-        $this->configManager->method('get')
+        // website_id=0 means global scope — globalConfigManager must be used, not scopedConfigManager
+        $this->globalConfigManager->method('get')
             ->with('oro_website.url', false, false, null)
             ->willReturn('https://b2b.default-store.com');
 
         $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
+        $this->globalConfigManager->expects($this->exactly(5))
             ->method('set')
             ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
             });
-        $this->configManager->expects($this->once())->method('flush');
+        $this->globalConfigManager->expects($this->once())->method('flush');
+        $this->scopedConfigManager->expects($this->never())->method('set');
+        $this->scopedConfigManager->expects($this->never())->method('flush');
 
         $request = $this->createJsonRequest([
             'workspace_id' => 'ws_global',
@@ -301,7 +309,7 @@ final class ConnectControllerTest extends TestCase
 
     public function testConnectWithGlobalScopeReturns422WhenWebsiteUrlEmpty(): void
     {
-        $this->configManager->method('get')
+        $this->globalConfigManager->method('get')
             ->with('oro_website.url', false, false, null)
             ->willReturn('');
 
@@ -356,7 +364,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    // -- Disconnect: success --
+    // -- Disconnect: success (EE — website scope) --
 
     public function testDisconnectClearsAllConfigFields(): void
     {
@@ -364,12 +372,14 @@ final class ConnectControllerTest extends TestCase
         $this->stubWebsiteLookup($website);
 
         $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
+        $this->scopedConfigManager->expects($this->exactly(5))
             ->method('set')
             ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
             });
-        $this->configManager->expects($this->once())->method('flush');
+        $this->scopedConfigManager->expects($this->once())->method('flush');
+        $this->globalConfigManager->expects($this->never())->method('set');
+        $this->globalConfigManager->expects($this->never())->method('flush');
 
         $request = $this->createJsonRequest(['website_id' => 1]);
 
@@ -385,17 +395,19 @@ final class ConnectControllerTest extends TestCase
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '', $website);
     }
 
-    // -- Disconnect: global scope (CE) --
+    // -- Disconnect: success (CE — global scope) --
 
     public function testDisconnectWithGlobalScope(): void
     {
         $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
+        $this->globalConfigManager->expects($this->exactly(5))
             ->method('set')
             ->willReturnCallback(function (string $key, $value, ?Website $scopeEntity) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value, 'scope' => $scopeEntity];
             });
-        $this->configManager->expects($this->once())->method('flush');
+        $this->globalConfigManager->expects($this->once())->method('flush');
+        $this->scopedConfigManager->expects($this->never())->method('set');
+        $this->scopedConfigManager->expects($this->never())->method('flush');
 
         $request = $this->createJsonRequest(['website_id' => 0]);
 
@@ -446,9 +458,15 @@ final class ConnectControllerTest extends TestCase
             ->willReturn($repository);
     }
 
-    private function stubWebsiteUrl(?Website $website, string $url): void
+    /**
+     * Stubs the website URL read on a specific ConfigManager mock.
+     *
+     * EE tests pass $this->scopedConfigManager (website scope),
+     * CE tests pass $this->globalConfigManager (global scope).
+     */
+    private function stubWebsiteUrl(MockObject $configManager, ?Website $website, string $url): void
     {
-        $this->configManager->method('get')
+        $configManager->method('get')
             ->with('oro_website.url', false, false, $website)
             ->willReturn($url);
     }

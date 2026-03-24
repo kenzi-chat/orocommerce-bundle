@@ -129,6 +129,16 @@ class WebhookDispatcher
         return base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true));
     }
 
+    /**
+     * Reads a Kenzi config value, optionally scoped to a Website.
+     *
+     * Uses oro_config.manager (the scope-cascading manager), which is the
+     * idiomatic Oro pattern for reading website-scoped settings. On EE, the
+     * manager resolves to WebsiteScopeManager and returns per-website values.
+     * On CE (no WebsiteScopeManager), Website is not a recognized scope entity
+     * for any CE scope manager, so the cascade falls through to global scope
+     * where ConnectController stores credentials via oro_config.global.
+     */
     private function getConfig(string $paramName, ?Website $website): mixed
     {
         return $this->configManager->get(

@@ -24,7 +24,8 @@ use Symfony\Component\Routing\Attribute\Route;
 class ConnectController
 {
     public function __construct(
-        private readonly ConfigManager $configManager,
+        private readonly ConfigManager $globalConfigManager,
+        private readonly ConfigManager $scopedConfigManager,
         private readonly ManagerRegistry $doctrine,
         private readonly AclHelper $aclHelper,
     ) {
@@ -63,7 +64,7 @@ class ConnectController
             return new JsonResponse(['error' => 'Website not found'], 404);
         }
 
-        $websiteUrl = (string) $this->configManager->get('oro_website.url', false, false, $website);
+        $websiteUrl = (string) $this->getConfigManager($website)->get('oro_website.url', false, false, $website);
         $storeKey = parse_url($websiteUrl, PHP_URL_HOST) ?: '';
 
         if ($storeKey === '') {
@@ -75,7 +76,7 @@ class ConnectController
         $this->setConfig(Configuration::PARAM_NAME_STORE_KEY, $storeKey, $website);
         $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, (new \DateTimeImmutable())->format('c'), $website);
         $this->setConfig(Configuration::PARAM_NAME_SYNC_ENABLED, true, $website);
-        $this->configManager->flush();
+        $this->getConfigManager($website)->flush();
 
         return new JsonResponse(['status' => 'connected']);
     }
@@ -109,7 +110,7 @@ class ConnectController
         $this->setConfig(Configuration::PARAM_NAME_WORKSPACE_ID, '', $website);
         $this->setConfig(Configuration::PARAM_NAME_STORE_KEY, '', $website);
         $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, '', $website);
-        $this->configManager->flush();
+        $this->getConfigManager($website)->flush();
 
         return new JsonResponse(['status' => 'disconnected']);
     }
@@ -127,11 +128,27 @@ class ConnectController
     }
 
     /**
+     * Returns the appropriate ConfigManager based on whether a Website is specified.
+     *
+     * On CE (website_id=0, $website=null), oro_config.manager resolves to a
+     * non-global scope (e.g. "customer") because the global scope has the lowest
+     * priority (-255). Credentials stored under "customer" scope are invisible
+     * to the storefront, which reads via the global scope cascade.
+     *
+     * On EE (website_id>0, $website set), oro_config.manager resolves to the
+     * website scope manager, which correctly stores per-website config.
+     */
+    private function getConfigManager(?Website $website): ConfigManager
+    {
+        return $website !== null ? $this->scopedConfigManager : $this->globalConfigManager;
+    }
+
+    /**
      * @param string|bool $value
      */
     private function setConfig(string $paramName, $value, ?Website $website): void
     {
-        $this->configManager->set(
+        $this->getConfigManager($website)->set(
             Configuration::getConfigKeyByName($paramName),
             $value,
             $website
