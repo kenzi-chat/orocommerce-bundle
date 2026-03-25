@@ -169,7 +169,7 @@ final class OrderUpdateListenerTest extends TestCase
             ->method('send')
             ->with(
                 $this->anything(),
-                $this->callback(fn(array $body) => $body['event'] === 'order.updated')
+                $this->callback(fn (array $body) => $body['event'] === 'order.updated')
             );
 
         $args = $this->createArgsWithChangeSet($order, ['email' => ['old@test.com', 'new@test.com']]);

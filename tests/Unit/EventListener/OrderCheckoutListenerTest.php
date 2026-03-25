@@ -99,7 +99,7 @@ final class OrderCheckoutListenerTest extends TestCase
             ->method('send')
             ->with(
                 $this->anything(),
-                $this->callback(fn(array $body) => $body['order_id'] === 99)
+                $this->callback(fn (array $body) => $body['order_id'] === 99)
             );
 
         $event = $this->createEventWithOrder($order);
@@ -115,7 +115,7 @@ final class OrderCheckoutListenerTest extends TestCase
             ->method('send')
             ->with(
                 $this->anything(),
-                $this->callback(fn(array $body) => $body['event'] === 'order.created')
+                $this->callback(fn (array $body) => $body['event'] === 'order.created')
             );
 
         $event = $this->createEventWithOrder($order);
