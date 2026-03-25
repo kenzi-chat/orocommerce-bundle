@@ -28,7 +28,7 @@
                 <strong>{{ 'kenzi_oro_commerce.connect.status.connected'|trans }}</strong><br>
                 {{ 'kenzi_oro_commerce.connect.status.workspace'|trans }}: {{ workspace_id }}<br>
                 {{ 'kenzi_oro_commerce.connect.status.store'|trans }}: {{ store_key }}<br>
-                {{ 'kenzi_oro_commerce.connect.status.connected_at'|trans }}: {{ connected_at|date('M j, Y g:i A') }}
+                {{ 'kenzi_oro_commerce.connect.status.connected_at'|trans }}: {{ connected_at|oro_format_datetime }}
             </div>
             <button type="button" class="btn btn-danger"
                     data-action="disconnect">
