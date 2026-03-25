@@ -8,7 +8,6 @@ use Doctrine\Persistence\ManagerRegistry;
 use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
 use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\OrderBundle\Entity\Order;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
 use Oro\Component\MessageQueue\Client\Message;
 use Oro\Component\MessageQueue\Client\MessageProducerInterface;
 use Oro\Component\MessageQueue\Client\TopicSubscriberInterface;
