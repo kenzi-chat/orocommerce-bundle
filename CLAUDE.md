@@ -1,8 +1,19 @@
 # CLAUDE.md — Kenzi OroCommerce Bundle
 
+## Supported Platform Versions
+
+This bundle MUST support both OroCommerce 6.0 and 6.1. The `oro/commerce` constraint in `composer.json` MUST remain `^6.0` — do NOT narrow it to `^6.1` or any single-version constraint.
+
+| Platform | Versions | Demo Environments |
+|----------|----------|-------------------|
+| OroCommerce | 6.0, 6.1 | `oro60.demo.kenzi.chat` (6.0.2), `oro61.demo.kenzi.chat` (6.1.6) |
+| PHP | 8.1+ | 8.3 (demo) |
+
+Both versions are continuously tested via the demo environments. Any change to this bundle must work on both Oro 6.0 and 6.1.
+
 ## Overview
 
-Standalone Composer package (`kenzi-chat/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.1 storefronts. Current capabilities:
+Standalone Composer package (`kenzi-chat/orocommerce-bundle`) that integrates Kenzi Chat into OroCommerce 6.0+ storefronts. Current capabilities:
 
 1. **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
 2. **Connect Controller** — Admin-panel endpoints to connect/disconnect credentials from the Kenzi connect popup, scoped per-website

@@ -57,7 +57,7 @@ The bundle defines parameters in both `system_configuration` and `website_config
 ## Requirements
 
 - PHP 8.1+
-- OroCommerce 6.0+
+- OroCommerce 6.0+ (tested on 6.0.2 and 6.1.6)
 
 ## Testing
 
