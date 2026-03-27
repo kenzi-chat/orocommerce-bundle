@@ -3,8 +3,70 @@
 Integrates [Kenzi Chat](https://kenzi.chat) into OroCommerce 6.0+ storefronts.
 
 - **Chat Widget** — Injects the Kenzi widget loader script into storefront pages via Oro's layout system
-- **Connect Flow** — Admin controller to store/clear credentials from the Kenzi connect popup, scoped per-website
+- **Connect Flow** — Admin controller to store/clear credentials from the Kenzi connect popup
 - **Order Webhooks** — Listens for order checkout and update events, enqueues messages via Oro's Message Queue, and asynchronously serializes and dispatches HMAC-signed webhooks to Kenzi. Retries failed dispatches 3 times with backoff (10s, 60s, 5min). Only triggers on payload-relevant field changes — timestamp-only updates are ignored.
+
+## Kenzi Integration Contract
+
+### Integration Model
+
+**1 integration per OroCommerce application.** A single Oro instance — regardless of how many Websites it hosts — maps to exactly one Kenzi integration record. The admin JSON:API is a single global endpoint with one set of credentials, so all Websites share one integration. Individual Websites are channels within that integration, not separate integrations.
+
+Per-website settings like `widget_enabled` and `sync_enabled` control which storefronts are active, but the integration identity, credentials, and API endpoint are at the application level.
+
+### Integration Key (instance_key)
+
+The integration key is the **application hostname** — the hostname of the Oro admin backend, not any individual Website's storefront URL. This key uniquely identifies the Oro instance and is used by Kenzi to route incoming webhooks.
+
+PHP derivation (from the admin URL):
+
+```php
+$adminUrl = $this->router->generate('oro_default', [], UrlGeneratorInterface::ABSOLUTE_URL);
+$instanceKey = parse_url($adminUrl, PHP_URL_HOST);
+```
+
+This hostname is stable regardless of which Website triggers the Connect flow.
+
+### Kenzi Connect Parameters
+
+| Param | Value | Source |
+|-------|-------|--------|
+| `platform` | `oro_commerce` | Hardcoded |
+| `instance_key` | Application hostname | Admin URL hostname (see above) |
+| `api_url` | Application origin URL, no trailing slash (e.g., `https://oro.acme.com`) | Admin URL origin |
+| `nonce` | Random UUID | `crypto.randomUUID()` |
+| `origin` | Oro admin origin | `window.location.origin` |
+| `capabilities` | `commerce` | Hardcoded |
+| `admin_url` | Oro admin dashboard URL, no trailing slash | `rtrim($router->generate('oro_default', [], ABSOLUTE_URL), '/')` |
+
+The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used as the base for JSON:API calls: `{api_url}/api`.
+
+### Webhook Resolution
+
+The `WebhookDispatcher` sends the integration key in the `X-Kenzi-Integration` header. Kenzi looks up the integration by direct match: `(:oro_commerce, integration_key)`.
+
+The header value is derived from the app URL's hostname:
+
+```php
+$integrationKey = parse_url($appBaseUrl, PHP_URL_HOST);
+```
+
+| Header | Purpose |
+|--------|---------|
+| `X-Kenzi-Integration` | Application hostname — used by Kenzi to resolve the integration |
+| `X-Kenzi-Signature` | HMAC-SHA256 of body, signed with `shared_secret` |
+| `X-Kenzi-Event` | Event name (e.g., `order.created`) |
+| `X-Kenzi-Delivery-Id` | UUID v4 for deduplication |
+| `X-Kenzi-Timestamp` | Unix timestamp at dispatch time |
+
+### Multi-Website (EE)
+
+In Enterprise Edition with multiple Websites:
+
+- **All Websites share one integration** — same `instance_key`, same `shared_secret`, same `api_url`
+- **`sync_enabled` is per-website** — controls which Websites dispatch webhooks
+- **`widget_enabled` is per-website** — controls which storefronts show the chat widget
+- **Orders are not website-filtered during backfill** — the admin API returns all orders across all Websites. Website context is a relationship on the order entity, not a routing concern.
 
 ## Installation
 
@@ -37,20 +99,27 @@ Override with `KENZI_APP_BASE` and `KENZI_STATIC_BASE` environment variables for
 
 ### Programmatic-Only Fields (set by connect flow)
 
+**Instance-level** (one value for the entire Oro application):
+
 | Parameter | Scope | Description |
 |-----------|-------|-------------|
-| Workspace ID | Website | Kenzi workspace identifier |
-| Enable Sync | Website | Enable entity webhook dispatching |
-| Shared Secret | Website | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup) |
-| Store Key | Website | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from the website URL. Sent as `X-Kenzi-Store-Key` header in webhooks so Kenzi can match the request to the right integration |
-| Connected At | Website | Timestamp of initial connection |
+| Workspace ID | Global | Kenzi workspace identifier |
+| Shared Secret | Global | HMAC-SHA256 shared secret (received from Kenzi Connect popup) |
+| Integration Key | Global | Application hostname (e.g. `oro.acme.com`), derived from the app URL's hostname. Sent as `X-Kenzi-Integration` header in webhooks |
+| Connected At | Global | Timestamp of initial connection |
+
+**Per-website** (controls which storefronts are active):
+
+| Parameter | Scope | Description |
+|-----------|-------|-------------|
+| Enable Sync | Website | Enable entity webhook dispatching for this website |
 
 ### CE/EE Compatibility
 
 This bundle supports both OroCommerce Community Edition (CE) and Enterprise Edition (EE).
 
-- **EE (multi-website):** Website-scoped parameters are stored per-website via `WebsiteScopeManager`. Each storefront gets its own independent Kenzi connection.
-- **CE (single website):** The `website_configuration` tree is parsed but dormant (no `WebsiteScopeManager` in CE). All values resolve through the global scope, which is correct since CE has only one website.
+- **CE (single website):** All values resolve through the global scope. The single Website uses the instance-level connection parameters directly.
+- **EE (multi-website):** Instance-level parameters (shared secret, store key, workspace ID) are shared across all Websites. Per-website parameters (`sync_enabled`, `widget_enabled`) control which storefronts are active.
 
 The bundle defines parameters in both `system_configuration` and `website_configuration` trees following the same pattern as Oro's own bundles (TaxBundle, CustomerBundle, CookieConsentBundle).
 
