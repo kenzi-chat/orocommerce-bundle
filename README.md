@@ -107,6 +107,8 @@ Override with `KENZI_APP_BASE` and `KENZI_STATIC_BASE` environment variables for
 | Shared Secret | Global | HMAC-SHA256 shared secret (received from Kenzi Connect popup) |
 | Instance Key | Global | Application hostname (e.g. `oro.acme.com`), derived from the app URL's hostname. Sent as `X-Kenzi-Integration` header in webhooks |
 | Connected At | Global | Timestamp of initial connection |
+| OAuth Client ID | Global | Oro identifier of the generated OAuth2 Client — used for lookup/revocation on retry and disconnect |
+| Credentials Delivered | Global | Whether OAuth2 credentials were successfully delivered to Kenzi (idempotency gate) |
 
 **Per-website** (controls which storefronts are active):
 

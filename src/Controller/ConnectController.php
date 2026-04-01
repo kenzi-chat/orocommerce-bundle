@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kenzi\OroCommerceBundle\Controller;
 
 use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
+use Kenzi\OroCommerceBundle\Credential\CredentialDelivery;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use Oro\Bundle\SecurityBundle\Attribute\AclAncestor;
@@ -25,6 +26,7 @@ class ConnectController
     public function __construct(
         private readonly ConfigManager $configManager,
         private readonly ApplicationUrlResolver $urlResolver,
+        private readonly CredentialDelivery $credentialDelivery,
     ) {
     }
 
@@ -66,7 +68,12 @@ class ConnectController
             Configuration::PARAM_NAME_SYNC_ENABLED => true,
         ]);
 
-        return new JsonResponse(['status' => 'connected']);
+        $delivered = $this->credentialDelivery->deliver();
+
+        return new JsonResponse([
+            'status' => 'connected',
+            'credentials_delivered' => $delivered,
+        ]);
     }
 
     /**
@@ -76,6 +83,8 @@ class ConnectController
     #[AclAncestor('oro_config_system')]
     public function disconnect(): JsonResponse
     {
+        $this->credentialDelivery->cleanup();
+
         $this->storeConnection([
             Configuration::PARAM_NAME_SYNC_ENABLED => false,
             Configuration::PARAM_NAME_SHARED_SECRET => '',

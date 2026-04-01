@@ -34,7 +34,7 @@ The bundle auto-registers via `Resources/config/oro/bundles.yml`.
 
 ## Configuration Parameters
 
-All settings are managed through OroCommerce System Configuration (Commerce > Kenzi Chat > Connection).
+All settings are managed through OroCommerce System Configuration (System Configuration > Integrations > Kenzi Chat).
 
 ### Admin-Visible Fields (in `system_configuration.yml` `fields:` section)
 
@@ -60,10 +60,12 @@ These values are seeded by `LoadKenziBaseUrls` on every `oro:install` / `oro:pla
 | Shared Secret | `shared_secret` | Global | `""` | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup's `kenzi_connected` postMessage payload) |
 | Instance Key | `instance_key` | Global | `""` | Application hostname (e.g. `oro.acme.com`), auto-derived from the admin URL. Sent as `x-kenzi-integration` webhook header so Kenzi can look up the matching `Integration` record |
 | Connected At | `connected_at` | Global | `""` | Timestamp of initial connection |
+| OAuth Client ID | `oauth_client_id` | Global | `""` | Oro database identifier of the generated OAuth2 Client (client_credentials grant). Stored so `CredentialDelivery` can find or revoke the client on retry/disconnect |
+| Credentials Delivered | `credentials_delivered` | Global | `false` | Whether the OAuth2 client_id + client_secret were successfully PATCHed to Kenzi. Idempotency gate — `deliver()` exits early when `true` |
 
 ### Configuration Scoping (CE/EE Compatibility)
 
-**Design principle:** One Oro instance = one Kenzi integration. All connection parameters are global. Per-website feature toggles (`widget_enabled`, and planned `order_sync_enabled`) control which storefronts are active. The `x-kenzi-integration` header carries the application hostname so Kenzi identifies the integration regardless of which website an order belongs to.
+**Design principle:** One Oro instance = one Kenzi integration. All connection parameters are global. `widget_enabled` appears at both global and website scope — the global value acts as the default, and per-website overrides control which storefronts show the chat widget. The `x-kenzi-integration` header carries the application hostname so Kenzi identifies the integration regardless of which website an order belongs to.
 
 **Planned: Per-website order sync** — Currently `sync_enabled` is global (master switch set by connect/disconnect). A future `order_sync_enabled` config will be added as a per-website toggle in the `website_configuration` tree, following the same pattern as `widget_enabled`. The dispatcher will then use a two-gate check: (1) global `sync_enabled` = integration is connected, (2) per-website `order_sync_enabled` = this website's orders should be dispatched. Until implemented, all websites dispatch webhooks when the integration is connected.
 
@@ -183,7 +185,7 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 
 ### Webhook Dispatcher
 
-`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. All config (`sync_enabled`, `shared_secret`, `instance_key`, `app_base_url`) is read from global scope.
+`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It derives the webhook URL from the global `app_base_url` config (`{app_base_url}/webhooks/oro-commerce`) and reads `shared_secret` and `integration_key` from global scope.
 
 **Dispatch flow:**
 

@@ -6,6 +6,7 @@ namespace Kenzi\OroCommerceBundle\Tests\Unit\Controller;
 
 use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\Controller\ConnectController;
+use Kenzi\OroCommerceBundle\Credential\CredentialDelivery;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -18,16 +19,20 @@ final class ConnectControllerTest extends TestCase
     private MockObject $configManager;
     /** @var ApplicationUrlResolver&MockObject */
     private MockObject $urlResolver;
+    /** @var CredentialDelivery&MockObject */
+    private MockObject $credentialDelivery;
     private ConnectController $controller;
 
     protected function setUp(): void
     {
         $this->configManager = $this->createMock(ConfigManager::class);
         $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
+        $this->credentialDelivery = $this->createMock(CredentialDelivery::class);
 
         $this->controller = new ConnectController(
             $this->configManager,
             $this->urlResolver,
+            $this->credentialDelivery,
         );
     }
 
@@ -122,6 +127,7 @@ final class ConnectControllerTest extends TestCase
     public function testConnectSuccessfully(): void
     {
         $this->stubAppUrl('https://b2b.acme-corp.com');
+        $this->credentialDelivery->method('deliver')->willReturn(false);
 
         $setCalls = [];
         $this->configManager->expects($this->exactly(5))
@@ -139,7 +145,10 @@ final class ConnectControllerTest extends TestCase
         $response = $this->controller->connect($request);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString('{"status":"connected"}', $response->getContent());
+        $this->assertJsonStringEqualsJsonString(
+            '{"status":"connected","credentials_delivered":false}',
+            $response->getContent()
+        );
 
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_nano_42');
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'hmac_secret_xyz');
@@ -156,6 +165,7 @@ final class ConnectControllerTest extends TestCase
     public function testConnectTrimsWhitespaceFromCredentials(): void
     {
         $this->stubAppUrl('https://store.test');
+        $this->credentialDelivery->method('deliver')->willReturn(false);
 
         $setCalls = [];
         $this->configManager->method('set')
@@ -179,6 +189,7 @@ final class ConnectControllerTest extends TestCase
     public function testConnectDerivesInstanceKeyFromAppUrl(): void
     {
         $this->stubAppUrl('https://shop.example.org');
+        $this->credentialDelivery->method('deliver')->willReturn(false);
 
         $capturedKey = null;
         $this->configManager->method('set')
@@ -202,6 +213,7 @@ final class ConnectControllerTest extends TestCase
     public function testConnectWritesConnectedAtTimestamp(): void
     {
         $this->stubAppUrl('https://store.test');
+        $this->credentialDelivery->method('deliver')->willReturn(false);
 
         $capturedConnectedAt = null;
         $this->configManager->method('set')
@@ -227,10 +239,36 @@ final class ConnectControllerTest extends TestCase
         $this->assertLessThan(5, $diff, 'connected_at should be within 5 seconds of now');
     }
 
+    public function testConnectDeliversCredentials(): void
+    {
+        $this->stubAppUrl('https://store.test');
+
+        $this->credentialDelivery->expects($this->once())
+            ->method('deliver')
+            ->willReturn(true);
+
+        $this->configManager->method('set');
+        $this->configManager->method('flush');
+
+        $request = $this->createJsonRequest([
+            'workspace_id' => 'ws_1',
+            'shared_secret' => 'sec_1',
+        ]);
+
+        $response = $this->controller->connect($request);
+
+        $this->assertJsonStringEqualsJsonString(
+            '{"status":"connected","credentials_delivered":true}',
+            $response->getContent()
+        );
+    }
+
     // -- Disconnect --
 
     public function testDisconnectClearsAllConfigFields(): void
     {
+        $this->credentialDelivery->expects($this->once())->method('cleanup');
+
         $setCalls = [];
         $this->configManager->expects($this->exactly(5))
             ->method('set')

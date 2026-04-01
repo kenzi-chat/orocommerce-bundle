@@ -20,6 +20,8 @@ class Configuration implements ConfigurationInterface
     public const PARAM_NAME_WORKSPACE_ID = 'workspace_id';
     public const PARAM_NAME_INSTANCE_KEY = 'instance_key';
     public const PARAM_NAME_CONNECTED_AT = 'connected_at';
+    public const PARAM_NAME_OAUTH_CLIENT_ID = 'oauth_client_id';
+    public const PARAM_NAME_CREDENTIALS_DELIVERED = 'credentials_delivered';
 
     #[\Override]
     public function getConfigTreeBuilder(): TreeBuilder
@@ -61,6 +63,14 @@ class Configuration implements ConfigurationInterface
                 self::PARAM_NAME_CONNECTED_AT => [
                     'type' => 'scalar',
                     'value' => '',
+                ],
+                self::PARAM_NAME_OAUTH_CLIENT_ID => [
+                    'type' => 'scalar',
+                    'value' => '',
+                ],
+                self::PARAM_NAME_CREDENTIALS_DELIVERED => [
+                    'type' => 'boolean',
+                    'value' => false,
                 ],
             ]
         );

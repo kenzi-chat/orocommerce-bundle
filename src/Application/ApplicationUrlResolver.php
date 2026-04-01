@@ -70,6 +70,19 @@ class ApplicationUrlResolver
         return $this->adminUrl() . '/api';
     }
 
+    /**
+     * OAuth2 token endpoint, e.g. `https://oro.acme.com/oauth2-token`.
+     *
+     * Lives at the application root, NOT under `web_backend_prefix` — Oro's
+     * OAuth2 server mounts its token endpoint at the front-end origin. Kenzi
+     * uses this URL to exchange client credentials for an access token during
+     * backfill.
+     */
+    public function tokenUrl(): string
+    {
+        return $this->baseOrigin() . '/oauth2-token';
+    }
+
     private function applicationUrl(): string
     {
         return (string) $this->configManager->get('oro_ui.application_url');

@@ -13,11 +13,23 @@ services:
         tags:
             - { name: form.type }
 
+    kenzi_oro_commerce.credential.delivery:
+        class: Kenzi\OroCommerceBundle\Credential\CredentialDelivery
+        arguments:
+            - '@oro_oauth2_server.client_manager'
+            - '@http_client'
+            - '@oro_config.global'
+            - '@oro_security.token_accessor'
+            - '@logger'
+        tags:
+            - { name: monolog.logger, channel: kenzi_oro_commerce }
+
     kenzi_oro_commerce.controller.connect:
         class: Kenzi\OroCommerceBundle\Controller\ConnectController
         arguments:
             - '@oro_config.global'
             - '@kenzi_oro_commerce.application.url_resolver'
+            - '@kenzi_oro_commerce.credential.delivery'
         tags:
             - { name: controller.service_arguments }
 

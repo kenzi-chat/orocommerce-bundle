@@ -27,7 +27,8 @@ define(function(require) {
             kenziOrigin: '',
             instanceKey: '',
             adminUrl: '',
-            apiUrl: ''
+            apiUrl: '',
+            tokenUrl: ''
         },
 
         /**
@@ -94,6 +95,10 @@ define(function(require) {
 
             if (this.options.adminUrl) {
                 params.set('admin_url', this.options.adminUrl);
+            }
+
+            if (this.options.tokenUrl) {
+                params.set('token_url', this.options.tokenUrl);
             }
 
             const popup = window.open(

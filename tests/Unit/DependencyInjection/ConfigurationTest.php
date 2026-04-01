@@ -37,6 +37,8 @@ final class ConfigurationTest extends TestCase
             Configuration::PARAM_NAME_WORKSPACE_ID,
             Configuration::PARAM_NAME_INSTANCE_KEY,
             Configuration::PARAM_NAME_CONNECTED_AT,
+            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
+            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED,
         ];
 
         $settings = $config['settings'];
@@ -58,6 +60,8 @@ final class ConfigurationTest extends TestCase
         $this->assertSame('', $settings[Configuration::PARAM_NAME_WORKSPACE_ID]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_INSTANCE_KEY]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_CONNECTED_AT]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_OAUTH_CLIENT_ID]['value']);
+        $this->assertSame(false, $settings[Configuration::PARAM_NAME_CREDENTIALS_DELIVERED]['value']);
     }
 
     /**
@@ -104,6 +108,14 @@ final class ConfigurationTest extends TestCase
         yield 'connected_at' => [
             Configuration::PARAM_NAME_CONNECTED_AT,
             'kenzi_oro_commerce.connected_at',
+        ];
+        yield 'oauth_client_id' => [
+            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
+            'kenzi_oro_commerce.oauth_client_id',
+        ];
+        yield 'credentials_delivered' => [
+            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED,
+            'kenzi_oro_commerce.credentials_delivered',
         ];
     }
 
