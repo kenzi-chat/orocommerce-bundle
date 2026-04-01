@@ -25,9 +25,9 @@ define(function(require) {
             storeUrl: '',
             disconnectUrl: '',
             kenziOrigin: '',
-            websiteId: '',
-            storeKey: '',
-            adminUrl: ''
+            instanceKey: '',
+            adminUrl: '',
+            apiUrl: ''
         },
 
         /**
@@ -67,8 +67,7 @@ define(function(require) {
         onConnect: function(e) {
             const $button = $(e.currentTarget);
             const kenziOrigin = this.options.kenziOrigin;
-            const storeKey = this.options.storeKey;
-            const websiteId = this.options.websiteId;
+            const instanceKey = this.options.instanceKey;
             const self = this;
 
             if (!kenziOrigin) {
@@ -83,11 +82,15 @@ define(function(require) {
 
             const params = new URLSearchParams({
                 platform: 'oro_commerce',
-                instance_key: storeKey || '',
+                instance_key: instanceKey || '',
                 nonce: nonce,
                 origin: window.location.origin,
                 capabilities: 'commerce'
             });
+
+            if (this.options.apiUrl) {
+                params.set('api_url', this.options.apiUrl);
+            }
 
             if (this.options.adminUrl) {
                 params.set('admin_url', this.options.adminUrl);
@@ -131,12 +134,9 @@ define(function(require) {
                 popup.postMessage({type: 'kenzi:ack'}, kenziOrigin);
                 self._cleanup();
 
-                // integration_id from the postMessage payload is not needed —
-                // Kenzi identifies this integration by platform + store key
                 self._storeCredentials({
                     workspace_id: data.workspace_id,
-                    shared_secret: data.shared_secret,
-                    website_id: parseInt(websiteId, 10)
+                    shared_secret: data.shared_secret
                 }, $button);
             };
 
@@ -181,7 +181,6 @@ define(function(require) {
          */
         onDisconnect: function(e) {
             const $button = $(e.currentTarget);
-            const websiteId = this.options.websiteId;
             const self = this;
 
             const modal = new Modal({
@@ -196,9 +195,7 @@ define(function(require) {
 
                 $.ajax({
                     url: self.options.disconnectUrl,
-                    method: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({website_id: parseInt(websiteId, 10)})
+                    method: 'POST'
                 }).done(function() {
                     window.location.reload();
                 }).fail(function() {

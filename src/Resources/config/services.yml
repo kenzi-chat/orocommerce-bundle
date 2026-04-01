@@ -2,8 +2,7 @@ services:
     kenzi_oro_commerce.form.type.connect_button:
         class: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
         arguments:
-            - '@oro_config.manager'
-            - '@router'
+            - '@oro_config.global'
         tags:
             - { name: form.type }
 
@@ -11,9 +10,6 @@ services:
         class: Kenzi\OroCommerceBundle\Controller\ConnectController
         arguments:
             - '@oro_config.global'
-            - '@oro_config.manager'
-            - '@doctrine'
-            - '@oro_security.acl_helper'
         tags:
             - { name: controller.service_arguments }
 
@@ -35,7 +31,7 @@ services:
         class: Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher
         arguments:
             - '@http_client'
-            - '@oro_config.manager'
+            - '@oro_config.global'
             - '@logger'
         tags:
             - { name: monolog.logger, channel: kenzi_oro_commerce }

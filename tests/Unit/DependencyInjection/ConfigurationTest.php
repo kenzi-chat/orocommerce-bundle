@@ -35,7 +35,7 @@ final class ConfigurationTest extends TestCase
             Configuration::PARAM_NAME_STATIC_BASE_URL,
             Configuration::PARAM_NAME_SHARED_SECRET,
             Configuration::PARAM_NAME_WORKSPACE_ID,
-            Configuration::PARAM_NAME_STORE_KEY,
+            Configuration::PARAM_NAME_INSTANCE_KEY,
             Configuration::PARAM_NAME_CONNECTED_AT,
         ];
 
@@ -56,7 +56,7 @@ final class ConfigurationTest extends TestCase
         $this->assertSame('', $settings[Configuration::PARAM_NAME_STATIC_BASE_URL]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_SHARED_SECRET]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_WORKSPACE_ID]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_STORE_KEY]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_INSTANCE_KEY]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_CONNECTED_AT]['value']);
     }
 
@@ -97,9 +97,9 @@ final class ConfigurationTest extends TestCase
             Configuration::PARAM_NAME_WORKSPACE_ID,
             'kenzi_oro_commerce.workspace_id',
         ];
-        yield 'store_key' => [
-            Configuration::PARAM_NAME_STORE_KEY,
-            'kenzi_oro_commerce.store_key',
+        yield 'instance_key' => [
+            Configuration::PARAM_NAME_INSTANCE_KEY,
+            'kenzi_oro_commerce.instance_key',
         ];
         yield 'connected_at' => [
             Configuration::PARAM_NAME_CONNECTED_AT,

@@ -80,8 +80,8 @@ class OrderWebhookProcessor implements MessageProcessorInterface, TopicSubscribe
 
         $website = $order->getWebsite();
 
-        if (!$this->dispatcher->isEnabledForWebsite($website)) {
-            $this->logger->debug('Kenzi: webhook skipped, sync not enabled for website', [
+        if (!$this->dispatcher->isEnabled()) {
+            $this->logger->debug('Kenzi: webhook skipped, sync not enabled', [
                 'order_id' => $orderId,
                 'website_id' => $website?->getId(),
                 'event' => $event,

@@ -90,26 +90,17 @@ final class SystemConfigurationYmlTest extends TestCase
         );
     }
 
-    public function testGlobalTreeContainsExpectedFields(): void
+    public function testGlobalTreeContainsConnectButtonAndWidgetEnabled(): void
     {
         $globalChildren = $this->resolveTreeLeaves(
             $this->config['system_configuration']['tree']['system_configuration']
         );
 
-        // Connect button appears in both trees for CE/EE compatibility
         $this->assertContains('kenzi_oro_commerce.connect_button', $globalChildren);
-        $this->assertContains('kenzi_oro_commerce.widget_enabled', $globalChildren);
-
-        // Secrets and per-website fields must NOT appear in global tree
-        $this->assertNotContains(
-            'kenzi_oro_commerce.shared_secret',
+        $this->assertContains(
+            'kenzi_oro_commerce.widget_enabled',
             $globalChildren,
-            'shared_secret must not be in global tree — it is website-scoped'
-        );
-        $this->assertNotContains(
-            'kenzi_oro_commerce.workspace_id',
-            $globalChildren,
-            'workspace_id must not be in global tree — it is website-scoped'
+            'widget_enabled must be in global tree as the default for all websites'
         );
     }
 
@@ -119,27 +110,17 @@ final class SystemConfigurationYmlTest extends TestCase
             $this->config['system_configuration']['tree']['website_configuration']
         );
 
-        // Only admin-visible fields belong in the tree.
-        // Programmatic-only fields (shared_secret, workspace_id, etc.) are scoped
-        // via ConfigManager::set() and do NOT need tree entries.
-        $expectedWebsiteFields = [
-            'kenzi_oro_commerce.connect_button',
+        $this->assertContains(
             'kenzi_oro_commerce.widget_enabled',
-        ];
-
-        foreach ($expectedWebsiteFields as $field) {
-            $this->assertContains(
-                $field,
-                $websiteChildren,
-                "Website tree must contain {$field}"
-            );
-        }
-
-        // Programmatic-only fields should NOT be in any tree
-        $this->assertNotContains(
-            'kenzi_oro_commerce.shared_secret',
             $websiteChildren,
-            'shared_secret must not be in website tree — it is programmatic-only'
+            'Website tree must contain widget_enabled'
+        );
+
+        // Connect button is global only — one integration per Oro instance
+        $this->assertNotContains(
+            'kenzi_oro_commerce.connect_button',
+            $websiteChildren,
+            'connect_button must not be in website tree — connection is global'
         );
     }
 
@@ -155,11 +136,16 @@ final class SystemConfigurationYmlTest extends TestCase
         );
     }
 
-    public function testWebsiteTreeNestsUnderCommerce(): void
+    public function testWebsiteTreeNestsUnderPlatformIntegrations(): void
     {
         $webTree = $this->config['system_configuration']['tree']['website_configuration'];
 
-        $this->assertArrayHasKey('commerce', $webTree, 'Website tree must nest under "commerce"');
+        $this->assertArrayHasKey('platform', $webTree, 'Website tree must nest under "platform"');
+        $this->assertArrayHasKey(
+            'integrations',
+            $webTree['platform']['children'],
+            'Website tree must nest under "platform > integrations"'
+        );
     }
 
     /**

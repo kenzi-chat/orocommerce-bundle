@@ -35,62 +35,50 @@ final class WebhookDispatcherTest extends TestCase
         );
     }
 
-    // -- isEnabledForWebsite ──────────────────────────────────────────────
+    // -- isEnabled ────────────────────────────────────────────────────
 
     public function testIsEnabledReturnsTrueWhenFullyConfigured(): void
     {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
-        $this->assertTrue($this->dispatcher->isEnabledForWebsite($website));
+        $this->assertTrue($this->dispatcher->isEnabled());
     }
 
     public function testIsEnabledReturnsFalseWhenSyncDisabled(): void
     {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, false, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(false, 'https://kenzi.test', 'secret', 'store.com');
 
-        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+        $this->assertFalse($this->dispatcher->isEnabled());
     }
 
     public function testIsEnabledReturnsFalseWhenMissingSecret(): void
     {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', '', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', '', 'store.com');
 
-        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+        $this->assertFalse($this->dispatcher->isEnabled());
     }
 
     public function testIsEnabledReturnsFalseWhenMissingAppBaseUrl(): void
     {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, '', 'secret', 'store.com');
+        $this->stubConfig(true, '', 'secret', 'store.com');
 
-        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+        $this->assertFalse($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledReturnsFalseWhenMissingStoreKey(): void
+    public function testIsEnabledReturnsFalseWhenMissingInstanceKey(): void
     {
-        $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', '');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', '');
 
-        $this->assertFalse($this->dispatcher->isEnabledForWebsite($website));
+        $this->assertFalse($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledWorksWithNullWebsite(): void
-    {
-        $this->stubConfig(null, true, 'https://kenzi.test', 'secret', 'store.com');
-
-        $this->assertTrue($this->dispatcher->isEnabledForWebsite(null));
-    }
-
-    // -- dispatch ─────────────────────────────────────────────────────────
+    // -- dispatch ─────────────────────────────────────────────────────
 
     public function testDispatchSendsCorrectHmacSignature(): void
     {
         $website = $this->createWebsiteMock(1);
         $secret = 'test_secret_abc123';
-        $this->stubConfig($website, true, 'https://kenzi.test', $secret, 'test.store.com');
+        $this->stubConfig(true, 'https://kenzi.test', $secret, 'test.store.com');
 
         $payload = ['event' => 'order.created', 'timestamp' => 1700000000, 'data' => ['id' => 1]];
 
@@ -98,7 +86,7 @@ final class WebhookDispatcherTest extends TestCase
             ->method('request')
             ->with(
                 'POST',
-                'https://kenzi.test/orocommerce/webhooks',
+                'https://kenzi.test/webhooks/oro-commerce',
                 $this->callback(function (array $options) use ($payload, $secret) {
                     $rawBody = $options['body'];
                     $expectedSignature = base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
@@ -107,7 +95,7 @@ final class WebhookDispatcherTest extends TestCase
                     $this->assertSame($expectedSignature, $options['headers']['x-kenzi-signature']);
                     $this->assertNotEmpty($options['headers']['x-kenzi-delivery-id']);
                     $this->assertNotEmpty($options['headers']['x-kenzi-timestamp']);
-                    $this->assertSame('test.store.com', $options['headers']['x-kenzi-store-key']);
+                    $this->assertSame('test.store.com', $options['headers']['x-kenzi-integration']);
                     $this->assertSame('order.created', $options['headers']['x-kenzi-event']);
 
                     // Verify the body round-trips to the same payload
@@ -128,7 +116,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchThrowsOnNon2xxResponse(int $statusCode): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock($statusCode));
@@ -153,7 +141,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchSucceedsOnUpperBound2xx(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock(299));
@@ -164,7 +152,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchThrowsTransportExceptionFromRequest(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $exception = new class ('Connection timed out') extends \RuntimeException implements TransportExceptionInterface {};
         $this->httpClient->method('request')->willThrowException($exception);
@@ -178,7 +166,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchThrowsTransportExceptionFromGetStatusCode(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $exception = new class ('DNS resolution failed') extends \RuntimeException implements TransportExceptionInterface {};
         $response = $this->createMock(ResponseInterface::class);
@@ -194,7 +182,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchThrowsJsonExceptionOnEncodingFailure(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->never())->method('request');
 
         $this->expectException(\JsonException::class);
@@ -205,7 +193,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testEachDispatchGeneratesUniqueDeliveryId(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $deliveryIds = [];
         $this->httpClient->method('request')
@@ -221,9 +209,9 @@ final class WebhookDispatcherTest extends TestCase
         $this->assertNotSame($deliveryIds[0], $deliveryIds[1]);
     }
 
-    public function testDispatchFallsBackToGlobalConfigWhenNoWebsite(): void
+    public function testDispatchWorksWithNullWebsite(): void
     {
-        $this->stubConfig(null, true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock(200));
@@ -234,13 +222,13 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchDerivesWebhookUrlFromAppBaseUrl(): void
     {
         $website = $this->createWebsiteMock(1);
-        $this->stubConfig($website, true, 'https://app.kenzi.chat', 'secret', 'store.com');
+        $this->stubConfig(true, 'https://app.kenzi.chat', 'secret', 'store.com');
 
         $this->httpClient->expects($this->once())
             ->method('request')
             ->with(
                 'POST',
-                'https://app.kenzi.chat/orocommerce/webhooks',
+                'https://app.kenzi.chat/webhooks/oro-commerce',
                 $this->anything()
             )
             ->willReturn($this->createResponseMock(200));
@@ -252,7 +240,7 @@ final class WebhookDispatcherTest extends TestCase
     {
         $website = $this->createWebsiteMock(1);
         $secret = 'known_secret';
-        $this->stubConfig($website, true, 'https://kenzi.test', $secret, 'store.com');
+        $this->stubConfig(true, 'https://kenzi.test', $secret, 'store.com');
 
         $payload = ['url' => 'https://example.com/path', 'emoji' => "\u{1F600}"];
 
@@ -277,20 +265,22 @@ final class WebhookDispatcherTest extends TestCase
     }
 
     /**
-     * Stub ConfigManager::get() with website-scoped values.
-     *
-     * app_base_url is always read from global scope (null website).
-     * sync_enabled, secret, and store_key are read scoped to the website.
+     * Stub ConfigManager::get() — all Kenzi config is read from global scope.
      */
-    private function stubConfig(?Website $website, bool $enabled, string $appBaseUrl, string $secret, string $storeKey): void
+    private function stubConfig(bool $enabled, string $appBaseUrl, string $secret, string $instanceKey): void
     {
         $this->configManager->method('get')
-            ->willReturnMap([
-                [Configuration::getConfigKeyByName(Configuration::PARAM_NAME_SYNC_ENABLED), false, false, $website, $enabled],
-                [Configuration::getConfigKeyByName(Configuration::PARAM_NAME_APP_BASE_URL), false, false, null, $appBaseUrl],
-                [Configuration::getConfigKeyByName(Configuration::PARAM_NAME_SHARED_SECRET), false, false, $website, $secret],
-                [Configuration::getConfigKeyByName(Configuration::PARAM_NAME_STORE_KEY), false, false, $website, $storeKey],
-            ]);
+            ->willReturnCallback(function (string $key) use ($enabled, $appBaseUrl, $secret, $instanceKey): mixed {
+                $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
+
+                return match ($paramName) {
+                    Configuration::PARAM_NAME_SYNC_ENABLED => $enabled,
+                    Configuration::PARAM_NAME_APP_BASE_URL => $appBaseUrl,
+                    Configuration::PARAM_NAME_SHARED_SECRET => $secret,
+                    Configuration::PARAM_NAME_INSTANCE_KEY => $instanceKey,
+                    default => null,
+                };
+            });
     }
 
     /** @return Website&MockObject */

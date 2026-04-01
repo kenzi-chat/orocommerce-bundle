@@ -18,7 +18,7 @@ class Configuration implements ConfigurationInterface
     public const PARAM_NAME_STATIC_BASE_URL = 'static_base_url';
     public const PARAM_NAME_SHARED_SECRET = 'shared_secret';
     public const PARAM_NAME_WORKSPACE_ID = 'workspace_id';
-    public const PARAM_NAME_STORE_KEY = 'store_key';
+    public const PARAM_NAME_INSTANCE_KEY = 'instance_key';
     public const PARAM_NAME_CONNECTED_AT = 'connected_at';
 
     #[\Override]
@@ -54,7 +54,7 @@ class Configuration implements ConfigurationInterface
                     'type' => 'scalar',
                     'value' => '',
                 ],
-                self::PARAM_NAME_STORE_KEY => [
+                self::PARAM_NAME_INSTANCE_KEY => [
                     'type' => 'scalar',
                     'value' => '',
                 ],

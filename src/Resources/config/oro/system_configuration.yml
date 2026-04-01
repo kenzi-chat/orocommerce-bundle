@@ -11,7 +11,6 @@ system_configuration:
     fields:
         kenzi_oro_commerce.connect_button:
             ui_only: true
-            data_type: string
             type: Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType
             priority: 30
             options:
@@ -40,14 +39,13 @@ system_configuration:
                                             - kenzi_oro_commerce.connect_button
                                             - kenzi_oro_commerce.widget_enabled
         website_configuration:
-            commerce:
+            platform:
                 children:
-                    kenzi:
-                        priority: 1000
+                    integrations:
                         children:
-                            kenzi_connection:
+                            kenzi:
+                                priority: -100
                                 children:
                                     kenzi_connection_website:
                                         children:
-                                            - kenzi_oro_commerce.connect_button
                                             - kenzi_oro_commerce.widget_enabled

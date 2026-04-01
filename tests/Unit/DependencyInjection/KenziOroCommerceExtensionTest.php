@@ -56,7 +56,7 @@ final class KenziOroCommerceExtensionTest extends TestCase
             'static_base_url',
             'shared_secret',
             'workspace_id',
-            'store_key',
+            'instance_key',
             'connected_at',
         ];
 

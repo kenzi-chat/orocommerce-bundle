@@ -57,7 +57,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->with($website)->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
 
         $payload = ['event' => 'order.created', 'timestamp' => 1700000000, 'data' => ['id' => 42]];
         $this->serializer->expects($this->once())
@@ -105,7 +105,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->with($website)->willReturn(false);
+        $this->dispatcher->method('isEnabled')->willReturn(false);
 
         $this->serializer->expects($this->never())->method('serialize');
 
@@ -125,7 +125,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
         $this->dispatcher->method('dispatch')
             ->willThrowException(new \RuntimeException('HTTP 500'));
@@ -157,7 +157,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
         $this->dispatcher->method('dispatch')
             ->willThrowException(new \RuntimeException('HTTP 503'));
@@ -191,7 +191,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
         $this->dispatcher->method('dispatch')
             ->willThrowException(new \RuntimeException('timeout'));
@@ -239,7 +239,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
         $this->dispatcher->method('dispatch')
             ->willThrowException(new \RuntimeException('Connection refused'));
@@ -262,7 +262,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
         $this->dispatcher->method('dispatch')
             ->willThrowException(new \JsonException('Malformed UTF-8'));
@@ -288,7 +288,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
 
         $this->dispatcher->expects($this->once())
@@ -307,7 +307,7 @@ final class OrderWebhookProcessorTest extends TestCase
         $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabledForWebsite')->willReturn(true);
+        $this->dispatcher->method('isEnabled')->willReturn(true);
         $this->serializer->method('serialize')->willReturn(['data' => []]);
 
         $this->dispatcher->expects($this->once())

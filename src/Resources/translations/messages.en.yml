@@ -18,10 +18,10 @@ kenzi_oro_commerce:
         status:
             connected: 'Connected to Kenzi'
             workspace: 'Workspace'
-            store: 'Store'
+            instance_key: 'Instance'
             connected_at: 'Connected'
         help:
-            connect: 'Click to open Kenzi and link this website to your workspace.'
+            connect: 'Click to open Kenzi and link this application to your workspace.'
             select_website: 'Select a Website from the scope selector above to configure Kenzi for this storefront.'
         error:
             no_kenzi_origin: 'Kenzi is not configured. Run oro:platform:update or contact your system administrator.'
@@ -29,6 +29,6 @@ kenzi_oro_commerce:
             store_failed: 'Failed to store Kenzi connection. Please try again.'
             disconnect_failed: 'Failed to disconnect. Please try again.'
         confirm:
-            disconnect: 'Disconnect from Kenzi? This will stop sending order webhooks for this website.'
+            disconnect: 'Disconnect from Kenzi? This will stop sending order webhooks.'
             disconnect_title: 'Disconnect from Kenzi'
             cancel: 'Cancel'

@@ -286,6 +286,28 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertArrayNotHasKey('shipping_address', $data);
     }
 
+    public function testWebsiteIsIncludedWhenPresent(): void
+    {
+        $website = $this->createMock(\Oro\Bundle\WebsiteBundle\Entity\Website::class);
+        $website->method('getId')->willReturn(1);
+        $website->method('getName')->willReturn('B2B Store');
+
+        $order = $this->createOrderMock(['getWebsite' => $website]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertSame(['id' => 1, 'name' => 'B2B Store'], $data['website']);
+    }
+
+    public function testWebsiteIsOmittedWhenNull(): void
+    {
+        $order = $this->createOrderMock();
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertArrayNotHasKey('website', $data);
+    }
+
     public function testLineItemsAreSerializedAsArray(): void
     {
         $product = $this->createMock(Product::class);
@@ -458,6 +480,7 @@ final class OrderPayloadSerializerTest extends TestCase
             'getCustomerUser' => null,
             'getBillingAddress' => null,
             'getShippingAddress' => null,
+            'getWebsite' => null,
             'getLineItems' => new \ArrayIterator([]),
             'getShippingTrackings' => new \ArrayIterator([]),
         ];
@@ -475,7 +498,7 @@ final class OrderPayloadSerializerTest extends TestCase
                 'getSourceEntityClass', 'getSourceEntityId', 'getSourceEntityIdentifier',
                 'getCreatedAt', 'getUpdatedAt',
                 'getCustomer', 'getCustomerUser',
-                'getBillingAddress', 'getShippingAddress',
+                'getBillingAddress', 'getShippingAddress', 'getWebsite',
                 'getLineItems', 'getShippingTrackings',
             ])
             ->addMethods(['getInternalStatus'])

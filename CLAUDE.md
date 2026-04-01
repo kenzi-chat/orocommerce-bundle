@@ -40,7 +40,7 @@ All settings are managed through OroCommerce System Configuration (Commerce > Ke
 
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
-| Enable Widget | `widget_enabled` | Website | `false` | Show chat widget on storefront |
+| Enable Widget | `widget_enabled` | Global + Website | `false` | Show chat widget on storefront. Global tree sets the default; per-website tree allows override |
 
 ### Environment-Seeded Fields (set by data migration from env vars)
 
@@ -48,29 +48,32 @@ These values are seeded by `LoadKenziBaseUrls` on every `oro:install` / `oro:pla
 
 | Parameter | Config Key | Scope | Fallback | Env Override | Description |
 |-----------|-----------|-------|----------|-------------|-------------|
-| App Base | `app_base_url` | Global | `https://app.kenzi.chat` | `KENZI_APP_BASE` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/orocommerce/webhooks`) |
+| App Base | `app_base_url` | Global | `https://app.kenzi.chat` | `KENZI_APP_BASE` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/webhooks/oro-commerce`) |
 | Static Base | `static_base_url` | Global | `https://static.kenzi.chat` | `KENZI_STATIC_BASE` | Kenzi static CDN — used to construct the widget loader URL (`{static_base_url}/widget/loader.js`) |
 
 ### Programmatic-Only Fields (set by connect flow, no admin UI)
 
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
-| Workspace ID | `workspace_id` | Website | `""` | Kenzi workspace identifier appended as `?w=` param |
-| Enable Sync | `sync_enabled` | Website | `false` | Enable entity webhook dispatching |
-| Shared Secret | `shared_secret` | Website | `""` | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup's `kenzi_connected` postMessage payload) |
-| Store Key | `store_key` | Website | `""` | Website hostname (e.g. `b2b.acme-corp.com`), auto-derived from `oro_website.url`. Sent as `X-Kenzi-Store-Key` webhook header so Kenzi can look up the matching `Integration` record |
-| Connected At | `connected_at` | Website | `""` | Timestamp of initial connection |
+| Workspace ID | `workspace_id` | Global | `""` | Kenzi workspace identifier appended as `?w=` param |
+| Enable Sync | `sync_enabled` | Global | `false` | Master switch for webhook dispatch (set by connect/disconnect flow). See "Planned: Per-website order sync" below |
+| Shared Secret | `shared_secret` | Global | `""` | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup's `kenzi_connected` postMessage payload) |
+| Instance Key | `instance_key` | Global | `""` | Application hostname (e.g. `oro.acme.com`), auto-derived from the admin URL. Sent as `x-kenzi-integration` webhook header so Kenzi can look up the matching `Integration` record |
+| Connected At | `connected_at` | Global | `""` | Timestamp of initial connection |
 
 ### Configuration Scoping (CE/EE Compatibility)
 
-**Design principle:** Each OroCommerce website = one independent Kenzi workspace connection. All connection parameters are website-scoped. `app_base_url` and `static_base_url` are global (one Kenzi instance for all websites, differentiated by `X-Kenzi-Store-Key` header).
+**Design principle:** One Oro instance = one Kenzi integration. All connection parameters are global. Per-website feature toggles (`widget_enabled`, and planned `order_sync_enabled`) control which storefronts are active. The `x-kenzi-integration` header carries the application hostname so Kenzi identifies the integration regardless of which website an order belongs to.
+
+**Planned: Per-website order sync** — Currently `sync_enabled` is global (master switch set by connect/disconnect). A future `order_sync_enabled` config will be added as a per-website toggle in the `website_configuration` tree, following the same pattern as `widget_enabled`. The dispatcher will then use a two-gate check: (1) global `sync_enabled` = integration is connected, (2) per-website `order_sync_enabled` = this website's orders should be dispatched. Until implemented, all websites dispatch webhooks when the integration is connected.
 
 **How scoping works in Oro:**
 
 - `Configuration.php` (`SettingsBuilder::append`) defines parameters and defaults — does NOT determine scope
 - `system_configuration.yml` trees determine scope:
   - `system_configuration` tree → Global scope (one value for the entire Oro instance)
-  - `website_configuration` tree → Website scope (per-website values on EE, dormant on CE)
+  - `website_configuration` tree → Website scope (per-website overrides on EE, dormant on CE)
+  - A field can appear in **both** trees — global provides the default, website provides the override (e.g., `widget_enabled`)
 - Parameters need a `fields:` entry ONLY if they should appear in the admin UI
 - Programmatic-only parameters (set via `ConfigManager::set()` in code) do NOT need tree entries — scoping is determined by how `set()` is called (with or without a Website entity), not by tree placement
 
@@ -112,19 +115,18 @@ src/
 
 `ConnectController` provides two POST endpoints behind Oro's admin authentication firewall:
 
-- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, shared_secret, website_id}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` scoped to the specified Website, enables sync, and auto-derives `store_key` from the Website's configured URL hostname.
-- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi config fields for a Website (shared_secret, workspace_id, store_key, connected_at) and disables sync.
+- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, shared_secret}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` at global scope, enables sync, and auto-derives `instance_key` from the application hostname (via `oro_ui.application_url`).
+- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi connection config at global scope (shared_secret, workspace_id, instance_key, connected_at) and disables sync. Takes no request body.
 
 **Key details:**
 
 - `#[CsrfProtection]` uses Oro's Double Submit Cookie pattern — the admin JS framework sends `X-CSRF-Header` automatically
 - `#[AclAncestor('oro_config_system')]` on both actions — only admins with system configuration permission can connect or disconnect
-- Website lookup uses `AclHelper::apply()` to scope by the current user's organization — prevents cross-org access in EE multi-org setups
-- `store_key` is derived from `oro_website.url` config (read via `ConfigManager`), not from the `Website` entity directly (which has no `getUrl()` method)
+- `instance_key` is derived from the application hostname via `oro_ui.application_url` (Oro's canonical application URL config, set during `oro:install`)
 - Credentials are trimmed before validation and storage — whitespace-only values are rejected
 - Routes are registered via `Resources/config/oro/routing.yml` with attribute-based routing and `/admin` prefix
 
-The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager`, `ManagerRegistry`, and `AclHelper` injected.
+The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager` (global) injected.
 
 ### Connect Button JavaScript
 
@@ -135,7 +137,8 @@ The service is registered as `kenzi_oro_commerce.controller.connect` with `Confi
 | Param | Value | Description |
 |-------|-------|-------------|
 | `platform` | `oro_commerce` | Platform identifier |
-| `instance_key` | Store key (hostname) | Unique identifier for the Oro website |
+| `instance_key` | Application hostname | Unique identifier for the Oro instance |
+| `api_url` | Back-office API base URL | Full URL with scheme and `/admin/api` prefix (e.g. `https://oro.acme.com/admin/api`) |
 | `nonce` | `crypto.randomUUID()` | CSRF correlation — echoed back in postMessage |
 | `origin` | `window.location.origin` | Oro admin origin for postMessage targeting |
 | `capabilities` | `commerce` | Requests commerce data sync capability |
@@ -148,7 +151,7 @@ The service is registered as `kenzi_oro_commerce.controller.connect` with `Confi
 { type: "kenzi_connected", nonce, workspace_id, shared_secret, ... }
 
 // Sent to ConnectController via AJAX
-{ workspace_id, shared_secret, website_id }
+{ workspace_id, shared_secret }
 ```
 
 ### Order Payload Serializer
@@ -167,7 +170,7 @@ Key behaviors:
 
 - **Money formatting** — `formatMoney()` normalizes all monetary values to 2-decimal strings (e.g. `"49.99"`) or `null`
 - **Status resolution** — `resolveStatus()` reads `Order::getInternalStatus()->getId()`, falling back to `"unknown"` when the internal status is null
-- **Nullable associations** — `customer`, `customer_user`, `billing_address`, `shipping_address` are omitted from the payload when null (not sent as `null` keys)
+- **Nullable associations** — `customer`, `customer_user`, `billing_address`, `shipping_address`, `website` are omitted from the payload when null (not sent as `null` keys)
 - **Collections** — `line_items` and `shipping_trackings` are always present as arrays (empty if none)
 - **Timestamps** — All date fields use ISO 8601 format (`'c'`)
 
@@ -180,16 +183,16 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 
 ### Webhook Dispatcher
 
-`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It derives the webhook URL from the global `app_base_url` config (`{app_base_url}/orocommerce/webhooks`) and reads `shared_secret` and `store_key` scoped to the order's Website.
+`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. All config (`sync_enabled`, `shared_secret`, `instance_key`, `app_base_url`) is read from global scope.
 
 **Dispatch flow:**
 
 1. Check `sync_enabled` — return `false` if disabled
-2. Derive webhook URL from global `app_base_url` (`{app_base_url}/orocommerce/webhooks`), read `shared_secret`, `store_key` — return `false` if any are empty
+2. Derive webhook URL from global `app_base_url` (`{app_base_url}/webhooks/oro-commerce`), read `shared_secret`, `instance_key` — return `false` if any are empty
 3. JSON-encode payload with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR`
 4. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true))` — raw binary output, then base64
 5. Generate unique delivery ID (`Uuid::v4`) and current Unix timestamp
-6. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-store-key`, `x-kenzi-event`
+6. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-integration`, `x-kenzi-event`
 
 **Critical invariants:**
 

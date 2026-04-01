@@ -33,22 +33,22 @@ This hostname is stable regardless of which Website triggers the Connect flow.
 |-------|-------|--------|
 | `platform` | `oro_commerce` | Hardcoded |
 | `instance_key` | Application hostname | Admin URL hostname (see above) |
-| `api_url` | Application origin URL, no trailing slash (e.g., `https://oro.acme.com`) | Admin URL origin |
+| `api_url` | Back-office API base URL (e.g., `https://oro.acme.com/admin/api`) | Derived from application URL |
 | `nonce` | Random UUID | `crypto.randomUUID()` |
 | `origin` | Oro admin origin | `window.location.origin` |
 | `capabilities` | `commerce` | Hardcoded |
 | `admin_url` | Oro admin dashboard URL, no trailing slash | `rtrim($router->generate('oro_default', [], ABSOLUTE_URL), '/')` |
 
-The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used as the base for JSON:API calls: `{api_url}/api`.
+The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used directly as the `base_url` for JSON:API calls (e.g. `https://oro.acme.com/admin/api/orders`).
 
 ### Webhook Resolution
 
-The `WebhookDispatcher` sends the integration key in the `X-Kenzi-Integration` header. Kenzi looks up the integration by direct match: `(:oro_commerce, integration_key)`.
+The `WebhookDispatcher` sends the instance key in the `X-Kenzi-Integration` header. Kenzi looks up the integration by direct match: `(:oro_commerce, instance_key)`.
 
 The header value is derived from the app URL's hostname:
 
 ```php
-$integrationKey = parse_url($appBaseUrl, PHP_URL_HOST);
+$instanceKey = parse_url($appBaseUrl, PHP_URL_HOST);
 ```
 
 | Header | Purpose |
@@ -92,7 +92,7 @@ Settings are managed through OroCommerce System Configuration (**Commerce > Kenz
 
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
-| App Base URL | `app_base_url` | Global | `https://app.kenzi.chat` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/orocommerce/webhooks`) |
+| App Base URL | `app_base_url` | Global | `https://app.kenzi.chat` | Kenzi app origin — used to open the connect popup and construct the webhook URL (`{app_base_url}/webhooks/oro-commerce`) |
 | Static Base URL | `static_base_url` | Global | `https://static.kenzi.chat` | Kenzi static CDN — used to construct the widget loader URL (`{static_base_url}/widget/loader.js`) |
 
 Override with `KENZI_APP_BASE` and `KENZI_STATIC_BASE` environment variables for local development (both `http://localhost:4000`).
@@ -105,7 +105,7 @@ Override with `KENZI_APP_BASE` and `KENZI_STATIC_BASE` environment variables for
 |-----------|-------|-------------|
 | Workspace ID | Global | Kenzi workspace identifier |
 | Shared Secret | Global | HMAC-SHA256 shared secret (received from Kenzi Connect popup) |
-| Integration Key | Global | Application hostname (e.g. `oro.acme.com`), derived from the app URL's hostname. Sent as `X-Kenzi-Integration` header in webhooks |
+| Instance Key | Global | Application hostname (e.g. `oro.acme.com`), derived from the app URL's hostname. Sent as `X-Kenzi-Integration` header in webhooks |
 | Connected At | Global | Timestamp of initial connection |
 
 **Per-website** (controls which storefronts are active):

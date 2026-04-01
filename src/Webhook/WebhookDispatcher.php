@@ -15,8 +15,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 /**
  * Signs and dispatches webhook payloads to the Kenzi endpoint.
  *
- * Reads all configuration scoped to the given Website (or global scope when null).
- * Computes HMAC-SHA256 over the raw JSON body and sets all required Kenzi headers.
+ * All configuration (sync_enabled, shared_secret, instance_key) is read
+ * from global scope. Computes HMAC-SHA256 over the raw JSON body and sets
+ * all required Kenzi headers.
  */
 class WebhookDispatcher
 {
@@ -28,31 +29,31 @@ class WebhookDispatcher
     }
 
     /**
-     * Whether webhook sync is enabled and fully configured for the given website.
+     * Whether webhook sync is enabled and fully configured.
      *
-     * Checks that sync_enabled is true AND all required config (app_base_url,
-     * shared_secret, store_key) are present. Listeners use this to bail out early
-     * before serializing payloads for websites not connected to Kenzi.
+     * Checks that sync_enabled is true AND all required config
+     * (app_base_url, shared_secret, instance_key) are present. Listeners
+     * use this to bail out early before serializing payloads.
      */
-    public function isEnabledForWebsite(?Website $website): bool
+    public function isEnabled(): bool
     {
-        if (!$this->getConfig(Configuration::PARAM_NAME_SYNC_ENABLED, $website)) {
+        if (!$this->getConfig(Configuration::PARAM_NAME_SYNC_ENABLED)) {
             return false;
         }
 
-        $appBaseUrl = $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL, null);
-        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET, $website);
-        $storeKey = $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
+        $appBaseUrl = $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
+        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
+        $instanceKey = $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
 
         return \is_string($appBaseUrl) && $appBaseUrl !== ''
             && \is_string($webhookSecret) && $webhookSecret !== ''
-            && \is_string($storeKey) && $storeKey !== '';
+            && \is_string($instanceKey) && $instanceKey !== '';
     }
 
     /**
      * Dispatch a webhook payload to the Kenzi endpoint.
      *
-     * Callers must check isEnabledForWebsite() before calling this method.
+     * Callers must check isEnabled() before calling this method.
      * This method handles signing, sending, and logging — it does not gate
      * on configuration.
      *
@@ -63,7 +64,7 @@ class WebhookDispatcher
      *
      * @param array<string, mixed> $payload  Pre-serialized payload from OrderPayloadSerializer
      * @param non-empty-string     $event    Event name (e.g. "order.created")
-     * @param Website|null         $website  Website to scope config reads to (null = global)
+     * @param Website|null         $website  Website the order belongs to (for logging)
      *
      * @throws \JsonException
      * @throws TransportExceptionInterface
@@ -72,10 +73,10 @@ class WebhookDispatcher
     {
         $websiteId = $website?->getId();
 
-        $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL, null);
-        $webhookUrl = $appBaseUrl . '/orocommerce/webhooks';
-        $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET, $website);
-        $storeKey = (string) $this->getConfig(Configuration::PARAM_NAME_STORE_KEY, $website);
+        $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
+        $webhookUrl = $appBaseUrl . '/webhooks/oro-commerce';
+        $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
+        $instanceKey = (string) $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
 
         $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
@@ -89,7 +90,7 @@ class WebhookDispatcher
                 'x-kenzi-signature' => $signature,
                 'x-kenzi-delivery-id' => $deliveryId,
                 'x-kenzi-timestamp' => $timestamp,
-                'x-kenzi-store-key' => $storeKey,
+                'x-kenzi-integration' => $instanceKey,
                 'x-kenzi-event' => $event,
             ],
             'body' => $rawBody,
@@ -130,22 +131,12 @@ class WebhookDispatcher
     }
 
     /**
-     * Reads a Kenzi config value, optionally scoped to a Website.
-     *
-     * Uses oro_config.manager (the scope-cascading manager), which is the
-     * idiomatic Oro pattern for reading website-scoped settings. On EE, the
-     * manager resolves to WebsiteScopeManager and returns per-website values.
-     * On CE (no WebsiteScopeManager), Website is not a recognized scope entity
-     * for any CE scope manager, so the cascade falls through to global scope
-     * where ConnectController stores credentials via oro_config.global.
+     * Reads a Kenzi config value from global scope.
      */
-    private function getConfig(string $paramName, ?Website $website): mixed
+    private function getConfig(string $paramName): mixed
     {
         return $this->configManager->get(
-            Configuration::getConfigKeyByName($paramName),
-            false,
-            false,
-            $website
+            Configuration::getConfigKeyByName($paramName)
         );
     }
 }

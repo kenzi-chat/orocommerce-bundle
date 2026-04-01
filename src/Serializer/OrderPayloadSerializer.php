@@ -83,6 +83,14 @@ class OrderPayloadSerializer
             $data['shipping_address'] = $this->serializeAddress($shippingAddress);
         }
 
+        $website = $order->getWebsite();
+        if ($website !== null) {
+            $data['website'] = [
+                'id' => $website->getId(),
+                'name' => $website->getName(),
+            ];
+        }
+
         $lineItems = [];
         foreach ($order->getLineItems() as $lineItem) {
             $lineItems[] = $this->serializeLineItem($lineItem);

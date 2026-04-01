@@ -10,8 +10,6 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormView;
 use Symfony\Component\OptionsResolver\OptionsResolver;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
-use Symfony\Component\Routing\RouterInterface;
 
 /**
  * Renders the Kenzi connect/disconnect button on the system configuration page.
@@ -27,7 +25,6 @@ class KenziConnectButtonType extends AbstractType
 {
     public function __construct(
         private readonly ConfigManager $configManager,
-        private readonly RouterInterface $router,
     ) {
     }
 
@@ -40,47 +37,52 @@ class KenziConnectButtonType extends AbstractType
     }
 
     /**
-     * Passes connection state and the scoped Website ID to the template.
+     * Passes connection state to the template.
      *
-     * When the admin views the website_configuration page, Oro sets
-     * the ConfigManager scope before building the form. All config reads
-     * resolve for the selected Website automatically. The scope ID
-     * (website entity ID) is passed to the JS for the connect/disconnect
-     * AJAX calls to the ConnectController.
+     * Connection config is global (one Oro instance = one Kenzi integration).
+     * The instance_key is the application hostname, derived from Oro's
+     * oro_ui.application_url system config. The api_url is the full
+     * back-office API base URL (scheme + host + /admin/api) for backfill requests.
      */
     #[\Override]
     public function buildView(FormView $view, FormInterface $form, array $options): void
     {
+        // oro_ui.application_url is the canonical application URL, set during
+        // oro:install and editable under System Configuration > General Setup.
+        // Oro's own bundles (EmailBundle, SyncBundle) use this as the
+        // authoritative source for the application's origin.
+        $appUrl = (string) $this->configManager->get('oro_ui.application_url');
+        $parts = parse_url($appUrl);
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $baseOrigin = $scheme . '://' . $host . $port;
+
+        // Admin URL = application origin + /admin path.
+        // Kenzi stores this so agents can deep-link directly to orders,
+        // customers, and products in the admin panel.
+        $adminUrl = $baseOrigin . '/admin';
+
+        // Connection config is global — one integration per Oro instance.
         $connectedAt = (string) $this->configManager->get(
             Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CONNECTED_AT)
         );
         $workspaceId = (string) $this->configManager->get(
             Configuration::getConfigKeyByName(Configuration::PARAM_NAME_WORKSPACE_ID)
         );
-        $storeKey = (string) $this->configManager->get(
-            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_STORE_KEY)
+        $instanceKey = (string) $this->configManager->get(
+            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_INSTANCE_KEY)
         );
 
-        // getScopeId() returns the current website ID when on the
-        // website_configuration page, or 0 when on global scope.
-        //
-        // Design decision (KZP-218): websiteId=0 is intentionally allowed.
-        // The original spec called for disabling the button on global scope,
-        // but CE editions only have global scope. Allowing websiteId=0 lets
-        // the connect flow work on both CE (global) and EE (per-website).
-        // ConnectController handles the null-website path accordingly.
-        $websiteId = $this->configManager->getScopeId();
-
-        // Before the first connection, store_key is empty in config.
-        // Derive it from the Website entity's URL hostname so the popup
-        // receives a store_key for the initial handshake.
-        // Works on both CE (global scope, websiteId=0) and EE (website
-        // scope, websiteId>0) — oro_website.url resolves via Oro's
-        // config cascade regardless of scope.
-        if ($storeKey === '') {
-            $websiteUrl = (string) $this->configManager->get('oro_website.url');
-            $storeKey = (string) parse_url($websiteUrl, PHP_URL_HOST);
+        // Before the first connection, instance_key is empty in config.
+        // Derive it from the application hostname so the popup receives
+        // an instance_key for the initial handshake.
+        if ($instanceKey === '') {
+            $instanceKey = $host;
         }
+
+        // api_url is the back-office API — derived from admin URL, not hardcoded.
+        $apiUrl = $adminUrl . '/api';
 
         // app_base_url is the Kenzi app origin — used to open the connect popup
         // and validate incoming postMessage events. Seeded by data migration
@@ -89,21 +91,13 @@ class KenziConnectButtonType extends AbstractType
             Configuration::getConfigKeyByName(Configuration::PARAM_NAME_APP_BASE_URL)
         );
 
-        // Generate the absolute URL to the Oro admin dashboard.
-        // Kenzi stores this so agents can deep-link directly to orders,
-        // customers, and products in the admin panel.
-        $adminUrl = rtrim(
-            $this->router->generate('oro_default', [], UrlGeneratorInterface::ABSOLUTE_URL),
-            '/'
-        );
-
         $view->vars['is_connected'] = $connectedAt !== '';
         $view->vars['workspace_id'] = $workspaceId;
-        $view->vars['store_key'] = $storeKey;
+        $view->vars['instance_key'] = $instanceKey;
         $view->vars['connected_at'] = $connectedAt;
-        $view->vars['website_id'] = $websiteId;
         $view->vars['kenzi_origin'] = $kenziOrigin;
         $view->vars['admin_url'] = $adminUrl;
+        $view->vars['api_url'] = $apiUrl;
     }
 
     #[\Override]
