@@ -48,6 +48,7 @@ final class KenziConnectButtonTypeTest extends TestCase
             Configuration::PARAM_NAME_WORKSPACE_ID => 'ws_abc123',
             Configuration::PARAM_NAME_INSTANCE_KEY => 'b2b.acme-corp.com',
             Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
+            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => true,
         ]);
 
         $view = new FormView();
@@ -56,6 +57,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->type->buildView($view, $form, []);
 
         $this->assertTrue($view->vars['is_connected']);
+        $this->assertTrue($view->vars['credentials_delivered']);
         $this->assertSame('ws_abc123', $view->vars['workspace_id']);
         $this->assertSame('b2b.acme-corp.com', $view->vars['instance_key']);
         $this->assertSame('2026-02-24T10:30:00+00:00', $view->vars['connected_at']);
@@ -63,6 +65,26 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('https://b2b.acme-corp.com/admin', $view->vars['admin_url']);
         $this->assertSame('https://b2b.acme-corp.com/admin/api', $view->vars['api_url']);
         $this->assertSame('https://b2b.acme-corp.com/oauth2-token', $view->vars['token_url']);
+    }
+
+    public function testBuildViewReportsPartialWhenCredentialsNotDelivered(): void
+    {
+        $this->stubConfig([
+            'oro_ui.application_url' => 'https://b2b.acme-corp.com',
+            Configuration::PARAM_NAME_CONNECTED_AT => '2026-02-24T10:30:00+00:00',
+            Configuration::PARAM_NAME_WORKSPACE_ID => 'ws_abc123',
+            Configuration::PARAM_NAME_INSTANCE_KEY => 'b2b.acme-corp.com',
+            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
+            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
+        ]);
+
+        $view = new FormView();
+        $form = $this->createMock(FormInterface::class);
+
+        $this->type->buildView($view, $form, []);
+
+        $this->assertTrue($view->vars['is_connected']);
+        $this->assertFalse($view->vars['credentials_delivered']);
     }
 
     public function testBuildViewWhenDisconnectedDerivesInstanceKeyFromAppUrl(): void

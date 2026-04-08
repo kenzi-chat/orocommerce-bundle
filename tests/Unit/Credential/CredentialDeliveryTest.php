@@ -61,11 +61,30 @@ final class CredentialDeliveryTest extends TestCase
         $this->assertFalse($this->delivery->deliver());
     }
 
+    public function testDeliverReturnsFalseWhenAppBaseUrlMissing(): void
+    {
+        // Prerequisite guard: without app_base_url we cannot build the Kenzi
+        // PATCH URL, so we must bail BEFORE creating a DB-backed OAuth client.
+        // Otherwise we would persist a client just to immediately revoke it.
+        $this->stubConfig([
+            Configuration::PARAM_NAME_SHARED_SECRET => 'secret',
+            Configuration::PARAM_NAME_INSTANCE_KEY => 'store.com',
+            Configuration::PARAM_NAME_APP_BASE_URL => '',
+        ]);
+
+        $this->clientManager->expects($this->never())->method('updateClient');
+        $this->clientManager->expects($this->never())->method('deleteClient');
+        $this->httpClient->expects($this->never())->method('request');
+
+        $this->assertFalse($this->delivery->deliver());
+    }
+
     public function testDeliverReturnsTrueWhenAlreadyDelivered(): void
     {
         $this->stubConfig([
             Configuration::PARAM_NAME_SHARED_SECRET => 'secret',
             Configuration::PARAM_NAME_INSTANCE_KEY => 'store.com',
+            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.test',
             Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => true,
         ]);
 
@@ -133,51 +152,12 @@ final class CredentialDeliveryTest extends TestCase
 
     // -- deliver: idempotency ────────────────────────────────────────────
 
-    public function testDeliverReusesExistingOAuthClient(): void
-    {
-        $this->stubConfig([
-            Configuration::PARAM_NAME_SHARED_SECRET => 'secret_abc',
-            Configuration::PARAM_NAME_INSTANCE_KEY => 'store.com',
-            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
-            Configuration::PARAM_NAME_OAUTH_CLIENT_ID => 'existing_id',
-            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.test',
-        ]);
-
-        $existingClient = new Client();
-        $this->setClientFields($existingClient, 'existing_id', 'existing_secret');
-
-        $this->clientManager->method('getClient')
-            ->with('existing_id')
-            ->willReturn($existingClient);
-
-        $this->clientManager->expects($this->never())->method('updateClient');
-
-        $this->httpClient->expects($this->once())
-            ->method('request')
-            ->with(
-                'PATCH',
-                $this->anything(),
-                $this->callback(function (array $options) {
-                    $body = json_decode($options['body'], true);
-                    $this->assertSame('existing_id', $body['client_id']);
-                    $this->assertSame('existing_secret', $body['client_secret']);
-
-                    return true;
-                })
-            )
-            ->willReturn($this->createResponseMock(200));
-
-        $this->configManager->method('set');
-        $this->configManager->method('flush');
-
-        $this->assertTrue($this->delivery->deliver());
-    }
-
     public function testDeliverRevokesExistingClientWhenPlainSecretUnavailable(): void
     {
         $this->stubConfig([
             Configuration::PARAM_NAME_SHARED_SECRET => 'secret_abc',
             Configuration::PARAM_NAME_INSTANCE_KEY => 'store.com',
+            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.test',
             Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
             Configuration::PARAM_NAME_OAUTH_CLIENT_ID => 'stale_id',
         ]);
@@ -263,6 +243,7 @@ final class CredentialDeliveryTest extends TestCase
         $this->stubConfig([
             Configuration::PARAM_NAME_SHARED_SECRET => 'secret_abc',
             Configuration::PARAM_NAME_INSTANCE_KEY => 'store.com',
+            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.test',
             Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
             Configuration::PARAM_NAME_OAUTH_CLIENT_ID => '',
         ]);
@@ -285,9 +266,9 @@ final class CredentialDeliveryTest extends TestCase
         $this->assertFalse($delivery->deliver());
     }
 
-    // -- cleanup ─────────────────────────────────────────────────────────
+    // -- revokeOAuthClient ───────────────────────────────────────────────
 
-    public function testCleanupRevokesOAuthClient(): void
+    public function testRevokeOAuthClientDeletesStoredClient(): void
     {
         $this->configManager->method('get')
             ->willReturnMap([
@@ -303,26 +284,15 @@ final class CredentialDeliveryTest extends TestCase
 
         $this->clientManager->expects($this->once())->method('deleteClient')->with($client);
 
-        $setCalls = [];
-        $this->configManager->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$setCalls) {
-                $setCalls[$key] = $value;
-            });
-        $this->configManager->expects($this->once())->method('flush');
+        // Revocation is Doctrine-only: the caller owns the ConfigManager
+        // writes as part of a single atomic disconnect flush.
+        $this->configManager->expects($this->never())->method('set');
+        $this->configManager->expects($this->never())->method('flush');
 
-        $this->delivery->cleanup();
-
-        $this->assertSame(
-            '',
-            $setCalls[Configuration::getConfigKeyByName(Configuration::PARAM_NAME_OAUTH_CLIENT_ID)]
-        );
-        $this->assertSame(
-            false,
-            $setCalls[Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CREDENTIALS_DELIVERED)]
-        );
+        $this->delivery->revokeOAuthClient();
     }
 
-    public function testCleanupHandlesMissingOAuthClient(): void
+    public function testRevokeOAuthClientHandlesMissingStoredClient(): void
     {
         $this->configManager->method('get')
             ->willReturnMap([
@@ -334,13 +304,13 @@ final class CredentialDeliveryTest extends TestCase
             ->willReturn(null);
 
         $this->clientManager->expects($this->never())->method('deleteClient');
-        $this->configManager->method('set');
-        $this->configManager->expects($this->once())->method('flush');
+        $this->configManager->expects($this->never())->method('set');
+        $this->configManager->expects($this->never())->method('flush');
 
-        $this->delivery->cleanup();
+        $this->delivery->revokeOAuthClient();
     }
 
-    public function testCleanupNoOpsWhenNoStoredClientId(): void
+    public function testRevokeOAuthClientNoOpsWhenNoStoredClientId(): void
     {
         $this->configManager->method('get')
             ->willReturnMap([
@@ -349,10 +319,10 @@ final class CredentialDeliveryTest extends TestCase
 
         $this->clientManager->expects($this->never())->method('getClient');
         $this->clientManager->expects($this->never())->method('deleteClient');
-        $this->configManager->method('set');
-        $this->configManager->expects($this->once())->method('flush');
+        $this->configManager->expects($this->never())->method('set');
+        $this->configManager->expects($this->never())->method('flush');
 
-        $this->delivery->cleanup();
+        $this->delivery->revokeOAuthClient();
     }
 
     // -- Helpers ──────────────────────────────────────────────────────────

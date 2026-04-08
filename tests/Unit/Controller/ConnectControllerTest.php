@@ -146,7 +146,7 @@ final class ConnectControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertJsonStringEqualsJsonString(
-            '{"status":"connected","credentials_delivered":false}',
+            '{"status":"partially_connected","credentials_delivered":false}',
             $response->getContent()
         );
 
@@ -263,14 +263,50 @@ final class ConnectControllerTest extends TestCase
         );
     }
 
+    // -- Retry delivery --
+
+    public function testRetryDeliveryReturnsConnectedWhenDeliverySucceeds(): void
+    {
+        $this->credentialDelivery->expects($this->once())
+            ->method('deliver')
+            ->willReturn(true);
+
+        $response = $this->controller->retryDelivery();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertJsonStringEqualsJsonString(
+            '{"status":"connected","credentials_delivered":true}',
+            $response->getContent()
+        );
+    }
+
+    public function testRetryDeliveryReturnsPartiallyConnectedWhenDeliveryFails(): void
+    {
+        $this->credentialDelivery->expects($this->once())
+            ->method('deliver')
+            ->willReturn(false);
+
+        $response = $this->controller->retryDelivery();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertJsonStringEqualsJsonString(
+            '{"status":"partially_connected","credentials_delivered":false}',
+            $response->getContent()
+        );
+    }
+
     // -- Disconnect --
 
     public function testDisconnectClearsAllConfigFields(): void
     {
-        $this->credentialDelivery->expects($this->once())->method('cleanup');
+        $this->credentialDelivery->expects($this->once())->method('revokeOAuthClient');
 
         $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
+        // Seven keys are cleared in a single flush: the five connection
+        // fields plus the two credential-delivery fields. Writing them all
+        // in one flush is the fix for the double-flush race window where
+        // a concurrent deliver() could see a partially-reset state.
+        $this->configManager->expects($this->exactly(7))
             ->method('set')
             ->willReturnCallback(function (string $key, $value) use (&$setCalls) {
                 $setCalls[] = ['key' => $key, 'value' => $value];
@@ -287,6 +323,8 @@ final class ConnectControllerTest extends TestCase
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, '');
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_INSTANCE_KEY, '');
         $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '');
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_OAUTH_CLIENT_ID, '');
+        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CREDENTIALS_DELIVERED, false);
     }
 
     // -- Helpers --

@@ -71,19 +71,48 @@ class ConnectController
         $delivered = $this->credentialDelivery->deliver();
 
         return new JsonResponse([
-            'status' => 'connected',
+            'status' => $delivered ? 'connected' : 'partially_connected',
+            'credentials_delivered' => $delivered,
+        ]);
+    }
+
+    /**
+     * Retries OAuth2 credential delivery after a prior `connect` call
+     * succeeded at storing shared credentials but failed to hand off the
+     * OAuth2 client_id/secret to Kenzi. Called from the admin UI when the
+     * user clicks "Retry delivery" on the partially-connected banner.
+     *
+     * `CredentialDelivery::deliver()` is idempotent — the shared_secret and
+     * instance_key were already persisted by the original connect call, so
+     * this is just "run the second half again."
+     */
+    #[Route(path: '/retry-delivery', name: 'kenzi_orocommerce_retry_delivery', methods: ['POST'])]
+    #[AclAncestor('oro_config_system')]
+    public function retryDelivery(): JsonResponse
+    {
+        $delivered = $this->credentialDelivery->deliver();
+
+        return new JsonResponse([
+            'status' => $delivered ? 'connected' : 'partially_connected',
             'credentials_delivered' => $delivered,
         ]);
     }
 
     /**
      * Disconnects the Kenzi integration.
+     *
+     * Order matters: the Doctrine-only OAuth2 client revocation runs before
+     * the single `ConfigManager` flush. Both the connection keys and the
+     * credential-delivery keys are written in one `storeConnection()` call
+     * so concurrent requests cannot observe a "credentials cleared but
+     * shared_secret still valid" state and trigger a fresh `deliver()` that
+     * would create an orphaned OAuth2 client.
      */
     #[Route(path: '/disconnect', name: 'kenzi_orocommerce_disconnect', methods: ['POST'])]
     #[AclAncestor('oro_config_system')]
     public function disconnect(): JsonResponse
     {
-        $this->credentialDelivery->cleanup();
+        $this->credentialDelivery->revokeOAuthClient();
 
         $this->storeConnection([
             Configuration::PARAM_NAME_SYNC_ENABLED => false,
@@ -91,6 +120,8 @@ class ConnectController
             Configuration::PARAM_NAME_WORKSPACE_ID => '',
             Configuration::PARAM_NAME_INSTANCE_KEY => '',
             Configuration::PARAM_NAME_CONNECTED_AT => '',
+            Configuration::PARAM_NAME_OAUTH_CLIENT_ID => '',
+            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
         ]);
 
         return new JsonResponse(['status' => 'disconnected']);

@@ -74,7 +74,16 @@ class KenziConnectButtonType extends AbstractType
             Configuration::getConfigKeyByName(Configuration::PARAM_NAME_APP_BASE_URL)
         );
 
+        // `credentials_delivered` is false until OAuth2 client_id/secret have
+        // been successfully PATCHed to Kenzi. When `is_connected` is true but
+        // this flag is false, the integration is partially connected —
+        // webhooks work, but backfill cannot authenticate yet.
+        $credentialsDelivered = (bool) $this->configManager->get(
+            Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CREDENTIALS_DELIVERED)
+        );
+
         $view->vars['is_connected'] = $connectedAt !== '';
+        $view->vars['credentials_delivered'] = $credentialsDelivered;
         $view->vars['workspace_id'] = $workspaceId;
         $view->vars['instance_key'] = $instanceKey;
         $view->vars['connected_at'] = $connectedAt;

@@ -24,12 +24,20 @@ define(function(require) {
         options: {
             storeUrl: '',
             disconnectUrl: '',
+            retryDeliveryUrl: '',
             kenziOrigin: '',
             instanceKey: '',
             adminUrl: '',
             apiUrl: '',
             tokenUrl: ''
         },
+
+        /**
+         * sessionStorage key used to surface a one-shot warning flash on the
+         * page that follows a partial-connect reload. Set by _storeCredentials
+         * before reload, read (and cleared) by initialize on the next load.
+         */
+        PARTIAL_FLASH_KEY: 'kenziConnectPartialFlash',
 
         /**
          * @property {Function|null} Bound message handler for cleanup
@@ -57,8 +65,32 @@ define(function(require) {
 
             this.$el.on('click', '[data-action="connect"]', this.onConnect.bind(this));
             this.$el.on('click', '[data-action="disconnect"]', this.onDisconnect.bind(this));
+            this.$el.on('click', '[data-action="retry-delivery"]', this.onRetryDelivery.bind(this));
+
+            this._surfacePartialFlash();
 
             KenziConnectComponent.__super__.initialize.call(this, options);
+        },
+
+        /**
+         * Show a warning flash if the previous request reloaded the page in
+         * a partially-connected state. The flag is cleared after reading so
+         * it only appears once.
+         *
+         * @private
+         */
+        _surfacePartialFlash: function() {
+            try {
+                if (window.sessionStorage.getItem(this.PARTIAL_FLASH_KEY)) {
+                    window.sessionStorage.removeItem(this.PARTIAL_FLASH_KEY);
+                    mediator.execute(
+                        'showFlashMessage', 'warning',
+                        __('kenzi_oro_commerce.connect.status.partially_connected_warning')
+                    );
+                }
+            } catch (err) {
+                // sessionStorage disabled — silently skip the flash.
+            }
         },
 
         /**
@@ -165,18 +197,66 @@ define(function(require) {
          * @private
          */
         _storeCredentials: function(credentials, $button) {
+            const self = this;
+
             $.ajax({
                 url: this.options.storeUrl,
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify(credentials)
-            }).done(function() {
+            }).done(function(response) {
+                if (response && response.status === 'partially_connected') {
+                    self._markPartialFlash();
+                }
                 window.location.reload();
             }).fail(function() {
                 $button.prop('disabled', false);
                 mediator.execute(
                     'showFlashMessage', 'error',
                     __('kenzi_oro_commerce.connect.error.store_failed')
+                );
+            });
+        },
+
+        /**
+         * Persist a flag so the next page load shows a partial-connect warning
+         * flash. Silently no-ops when sessionStorage is unavailable — the
+         * inline Twig banner still communicates the state.
+         *
+         * @private
+         */
+        _markPartialFlash: function() {
+            try {
+                window.sessionStorage.setItem(this.PARTIAL_FLASH_KEY, '1');
+            } catch (err) {
+                // sessionStorage disabled — fall back to the Twig banner.
+            }
+        },
+
+        /**
+         * Handle "Retry delivery" button click on the partially-connected
+         * banner. POSTs to the retry endpoint, which re-runs credential
+         * delivery using the already-stored shared secret.
+         */
+        onRetryDelivery: function(e) {
+            const $button = $(e.currentTarget);
+            const self = this;
+
+            $button.prop('disabled', true);
+
+            $.ajax({
+                url: this.options.retryDeliveryUrl,
+                method: 'POST'
+            }).done(function(response) {
+                if (response && response.status === 'partially_connected') {
+                    self._markPartialFlash();
+                }
+                window.location.reload();
+            }).fail(function() {
+                $button.prop('disabled', false);
+                mediator.execute(
+                    'showFlashMessage', 'error',
+                    __('kenzi_oro_commerce.connect.error.retry_delivery_failed')
                 );
             });
         },

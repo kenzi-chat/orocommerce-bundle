@@ -13,6 +13,7 @@
     {% set componentOptions = {
         storeUrl: path('kenzi_orocommerce_connect'),
         disconnectUrl: path('kenzi_orocommerce_disconnect'),
+        retryDeliveryUrl: path('kenzi_orocommerce_retry_delivery'),
         kenziOrigin: kenzi_origin,
         instanceKey: instance_key,
         adminUrl: admin_url,
@@ -31,6 +32,20 @@
                 {{ 'kenzi_oro_commerce.connect.status.instance_key'|trans }}: {{ instance_key }}<br>
                 {{ 'kenzi_oro_commerce.connect.status.connected_at'|trans }}: {{ connected_at|oro_format_datetime }}
             </div>
+            {% if not credentials_delivered %}
+                <div class="alert alert-warning">
+                    <i class="fa fa-exclamation-triangle"></i>
+                    <strong>{{ 'kenzi_oro_commerce.connect.status.partially_connected'|trans }}</strong><br>
+                    {{ 'kenzi_oro_commerce.connect.help.retry_delivery'|trans }}
+                    <div style="margin-top: 8px;">
+                        <button type="button" class="btn btn-warning"
+                                data-action="retry-delivery">
+                            <i class="fa fa-refresh"></i>
+                            {{ 'kenzi_oro_commerce.connect.button.retry_delivery'|trans }}
+                        </button>
+                    </div>
+                </div>
+            {% endif %}
             <button type="button" class="btn btn-danger"
                     data-action="disconnect">
                 <i class="fa fa-unlink"></i>

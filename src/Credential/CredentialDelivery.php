@@ -100,38 +100,56 @@ class CredentialDelivery
     }
 
     /**
-     * Revoke the OAuth2 client and clear delivery state.
+     * Revoke the OAuth2 client referenced by the current connection.
      *
-     * Called on disconnect to clean up the generated credentials.
+     * Doctrine-only — deletes the `Client` entity via `ClientManager` and
+     * does NOT touch `ConfigManager`. The caller is responsible for
+     * clearing `oauth_client_id` / `credentials_delivered` as part of a
+     * single atomic disconnect flush (see `ConnectController::disconnect`).
+     *
+     * Splitting these writes apart matters: a previous version of this
+     * method flushed the config twice during disconnect, opening a race
+     * window where a concurrent `deliver()` call could observe a "credentials
+     * not delivered yet, but shared_secret still valid" state and create a
+     * fresh OAuth2 client that would then be orphaned by the second flush.
      */
-    public function cleanup(): void
+    public function revokeOAuthClient(): void
     {
         $oauthClientId = $this->getConfig(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
 
-        if ($oauthClientId !== null && $oauthClientId !== '') {
-            $client = $this->clientManager->getClient((string) $oauthClientId);
-
-            if ($client !== null) {
-                $this->clientManager->deleteClient($client);
-
-                $this->logger->info('OAuth2 client revoked', [
-                    'oauth_client_identifier' => $client->getIdentifier(),
-                ]);
-            }
+        if ($oauthClientId === null || $oauthClientId === '') {
+            return;
         }
 
-        $this->setConfig(Configuration::PARAM_NAME_OAUTH_CLIENT_ID, '');
-        $this->setConfig(Configuration::PARAM_NAME_CREDENTIALS_DELIVERED, false);
-        $this->configManager->flush();
+        $client = $this->clientManager->getClient((string) $oauthClientId);
+
+        if ($client === null) {
+            return;
+        }
+
+        $this->clientManager->deleteClient($client);
+
+        $this->logger->info('OAuth2 client revoked', [
+            'oauth_client_identifier' => $client->getIdentifier(),
+        ]);
     }
 
+    /**
+     * All prerequisites for delivery must be present before we create a
+     * DB-backed OAuth2 client. `app_base_url` is part of the check because
+     * `deliverToKenzi()` uses it to construct the PATCH URL — without it,
+     * we would create a client just to immediately revoke it, leaving a
+     * noisy audit trail for a state we can detect up front.
+     */
     private function isConnected(): bool
     {
         $sharedSecret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
         $integrationKey = $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
+        $appBaseUrl = $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
 
         return \is_string($sharedSecret) && $sharedSecret !== ''
-            && \is_string($integrationKey) && $integrationKey !== '';
+            && \is_string($integrationKey) && $integrationKey !== ''
+            && \is_string($appBaseUrl) && $appBaseUrl !== '';
     }
 
     private function isDelivered(): bool
@@ -162,22 +180,27 @@ class CredentialDelivery
 
     private function createOAuthClient(): ?Client
     {
+        // Pre-flight: both checks represent "we can't create a client here,"
+        // but they map to genuinely different ops scenarios — insufficient
+        // role configuration vs. an expired/missing session. Keep the two
+        // log messages distinct so the operator can diagnose without
+        // re-running under a debugger.
         if (!$this->clientManager->isCreationGranted()) {
             $this->logger->error('Insufficient permission to create OAuth2 client');
 
             return null;
         }
 
+        $userId = $this->tokenAccessor->getUserId();
+
+        if ($userId === null) {
+            $this->logger->error('No authenticated user — cannot set OAuth2 client owner');
+
+            return null;
+        }
+
         try {
             $integrationKey = (string) $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
-
-            $userId = $this->tokenAccessor->getUserId();
-
-            if ($userId === null) {
-                $this->logger->error('No authenticated user — cannot set OAuth2 client owner');
-
-                return null;
-            }
 
             $client = new Client();
             $client->setName('Kenzi Commerce (' . $integrationKey . ')');
@@ -198,6 +221,7 @@ class CredentialDelivery
             return $client;
         } catch (\Throwable $e) {
             $this->logger->error('Failed to create OAuth2 client', [
+                'error_class' => $e::class,
                 'error' => $e->getMessage(),
             ]);
 
@@ -207,13 +231,11 @@ class CredentialDelivery
 
     private function deliverToKenzi(string $clientIdentifier, string $clientSecret): bool
     {
+        // `isConnected()` is the single gate for these three values; if we
+        // got past it, they are guaranteed non-empty strings.
         $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
         $sharedSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
         $integrationKey = (string) $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
-
-        if ($appBaseUrl === '' || $sharedSecret === '' || $integrationKey === '') {
-            return false;
-        }
 
         $url = $appBaseUrl . '/api/integrations/oro_commerce/' . urlencode($integrationKey) . '/credentials';
 
@@ -253,6 +275,28 @@ class CredentialDelivery
         }
     }
 
+    /**
+     * Delete the OAuth2 client and clear its tracking config.
+     *
+     * This is a two-phase write across different storage systems: the
+     * Doctrine `Client` entity is deleted first, then the `ConfigManager`
+     * flush clears `oauth_client_id` + `credentials_delivered`. If the
+     * process crashes between the two phases, the stored `oauth_client_id`
+     * references a client that no longer exists in the database.
+     *
+     * That stale state is recoverable: on the next `deliver()` call,
+     * `findOrCreateOAuthClient()` loads the stored id via
+     * `ClientManager::getClient()`, gets `null`, logs "Stored OAuth2 client
+     * not found, recreating" and falls through to `createOAuthClient()`.
+     * So a crash between the phases degrades to "next delivery attempt
+     * recreates the client," which is exactly what we want.
+     *
+     * Ordering matters: Doctrine delete must come first. Reversing the
+     * order would produce the opposite failure — config cleared while the
+     * orphaned client is still in the database — which is not
+     * self-recovering on the next `deliver()` call because the stored id
+     * would already be empty.
+     */
     private function revokeAndClear(Client $client): void
     {
         $this->clientManager->deleteClient($client);
