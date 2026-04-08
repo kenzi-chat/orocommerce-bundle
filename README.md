@@ -36,7 +36,7 @@ This hostname is stable regardless of which Website triggers the Connect flow.
 | `api_url` | Back-office API base URL (e.g., `https://oro.acme.com/admin/api`) | Derived from application URL |
 | `nonce` | Random UUID | `crypto.randomUUID()` |
 | `origin` | Oro admin origin | `window.location.origin` |
-| `capabilities` | `commerce` | Hardcoded |
+| `requested_capabilities` | `commerce` | Hardcoded |
 | `admin_url` | Oro admin dashboard URL, no trailing slash | `rtrim($router->generate('oro_default', [], ABSOLUTE_URL), '/')` |
 
 The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used directly as the `base_url` for JSON:API calls (e.g. `https://oro.acme.com/admin/api/orders`).

@@ -141,7 +141,7 @@ The service is registered as `kenzi_oro_commerce.controller.connect` with `Confi
 | `api_url` | Back-office API base URL | Full URL with scheme and `/admin/api` prefix (e.g. `https://oro.acme.com/admin/api`) |
 | `nonce` | `crypto.randomUUID()` | CSRF correlation — echoed back in postMessage |
 | `origin` | `window.location.origin` | Oro admin origin for postMessage targeting |
-| `capabilities` | `commerce` | Requests commerce data sync capability |
+| `requested_capabilities` | `commerce` | Requests commerce data sync capability |
 | `admin_url` | Oro admin dashboard URL | For deep-linking to orders/customers in Kenzi |
 
 **postMessage contract** — the JS listens for `kenzi_connected` (underscore, not colon) from the Kenzi popup:

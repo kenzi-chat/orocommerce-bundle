@@ -85,7 +85,7 @@ define(function(require) {
                 instance_key: instanceKey || '',
                 nonce: nonce,
                 origin: window.location.origin,
-                capabilities: 'commerce'
+                requested_capabilities: 'commerce'
             });
 
             if (this.options.apiUrl) {
