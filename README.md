@@ -38,8 +38,9 @@ This hostname is stable regardless of which Website triggers the Connect flow.
 | `origin` | Oro admin origin | `window.location.origin` |
 | `requested_capabilities` | `commerce` | Hardcoded |
 | `admin_url` | Oro admin dashboard URL, no trailing slash | `rtrim($router->generate('oro_default', [], ABSOLUTE_URL), '/')` |
+| `base_url` | Application root origin (e.g., `https://oro.acme.com`) | `ApplicationUrlResolver::baseOrigin()` |
 
-The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used directly as the `base_url` for JSON:API calls (e.g. `https://oro.acme.com/admin/api/orders`).
+The `api_url` is stored by Kenzi in `integration.meta["api_url"]` and used directly as the base URL for JSON:API calls (e.g. `https://oro.acme.com/admin/api/orders`). The `base_url` is stored in `integration.meta["base_url"]` and used to derive the OAuth2 token endpoint (`{base_url}/oauth2-token`) and to construct absolute product image URLs during backfill (the OroCommerce API returns relative image paths).
 
 ### Webhook Resolution
 

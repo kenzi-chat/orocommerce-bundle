@@ -90,7 +90,7 @@ class KenziConnectButtonType extends AbstractType
         $view->vars['kenzi_origin'] = $kenziOrigin;
         $view->vars['admin_url'] = $this->urlResolver->adminUrl();
         $view->vars['api_url'] = $this->urlResolver->apiUrl();
-        $view->vars['token_url'] = $this->urlResolver->tokenUrl();
+        $view->vars['base_url'] = $this->urlResolver->baseOrigin();
     }
 
     #[\Override]

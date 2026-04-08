@@ -87,3 +87,68 @@ latent.
 `CredentialDelivery::deliver()` — an Oban-style queue retry, a CLI command,
 a cron job, etc. This is a blocker for those, so the work should land as
 part of whichever feature introduces them.
+
+---
+
+## 3. Eager-load product images in OrderWebhookProcessor
+
+**Source:** GitHub code review (commit 3686a95b, 2026-04)
+
+**Symptom:** `OrderPayloadSerializer::resolveProductImageUrl()` calls
+`$product->getImagesByType('listing')` per line item. Since the processor
+loads the Order via `$repository->find($orderId)` (plain Doctrine find),
+all associations are lazy proxies. Each line item triggers separate queries
+for the product and its image collection — an N+1 problem.
+
+**Impact:** For an order with N line items, this adds ~2N extra SQL queries
+per webhook dispatch. The processor runs in Oro's async message queue worker
+so it doesn't block user-facing requests, and typical order sizes (5-20
+line items) keep the absolute cost low.
+
+**Proposed fix:** Replace `$repository->find()` with a DQL query that uses
+`JOIN FETCH` for `lineItems`, `lineItems.product`, and the product's image
+collection. Requires mapping out Oro's exact association names for product
+images (`Product::$images` → `ProductImage::$image` → `File`).
+
+**Why deferred:** Low user-facing impact (async worker, small line item
+counts). The fix requires understanding Oro's internal entity mapping for
+product images across both 6.0 and 6.1, which is non-trivial to verify
+without integration testing on both versions.
+
+**Revisit trigger:** Performance complaints from high-volume stores, or if
+we add synchronous webhook dispatch for any reason.
+
+---
+
+## 4. Align product image selection between webhook and backfill paths
+
+**Source:** GitHub code review (commit 3686a95b, 2026-04)
+
+**Symptom:** The webhook and backfill code paths use different strategies to
+resolve a product's display image, which can produce different `image_url`
+values for the same product:
+
+- **Webhook (PHP):** `$product->getImagesByType('listing')` — filters by
+  the `listing` image type via Doctrine, then resolves the `product_small`
+  filtered URL via `AttachmentManager`.
+- **Backfill (Elixir):** `include=images.image` in the JSON:API request —
+  fetches ALL product images regardless of type, then `pick_image_url`
+  selects the `product_small` dimension from the file's `filePath` array.
+
+A product with only a `main` image (no `listing` type) would get
+`image_url: null` from the webhook but could resolve a URL from backfill.
+
+**Proposed fix:** Filter `productimages` resources in the Elixir backfill
+path by their image type attribute (if exposed by the JSON:API), matching
+the PHP path's `listing` type constraint. Requires inspecting the actual
+`productimages` JSON:API resource schema on a live Oro instance to identify
+the correct attribute name.
+
+**Why deferred:** Most products with images will have a `listing` type
+(it's the standard storefront display type). The divergence only affects
+products with unusual image configurations. We need access to a live Oro
+instance to inspect the `productimages` resource schema.
+
+**Revisit trigger:** Any report of mismatched product images between
+webhook-synced and backfill-synced products, or next time we're inspecting
+the Oro JSON:API responses on a demo instance.

@@ -145,6 +145,7 @@ The service is registered as `kenzi_oro_commerce.controller.connect` with `Confi
 | `origin` | `window.location.origin` | Oro admin origin for postMessage targeting |
 | `requested_capabilities` | `commerce` | Requests commerce data sync capability |
 | `admin_url` | Oro admin dashboard URL | For deep-linking to orders/customers in Kenzi |
+| `base_url` | Application root origin (e.g., `https://oro.acme.com`) | Stored in `integration.meta["base_url"]` — used to derive the OAuth2 token endpoint and to construct absolute product image URLs during backfill |
 
 **postMessage contract** — the JS listens for `kenzi_connected` (underscore, not colon) from the Kenzi popup:
 
@@ -168,10 +169,13 @@ The service is registered as `kenzi_oro_commerce.controller.connect` with `Confi
 }
 ```
 
+Constructor dependencies: `AttachmentManager` (Oro's file URL generator) and `ApplicationUrlResolver` (derives the application root origin).
+
 Key behaviors:
 
 - **Money formatting** — `formatMoney()` normalizes all monetary values to 2-decimal strings (e.g. `"49.99"`) or `null`
 - **Status resolution** — `resolveStatus()` reads `Order::getInternalStatus()->getId()`, falling back to `"unknown"` when the internal status is null
+- **Product image URL** — `resolveProductImageUrl()` resolves the `listing`-type product image via `AttachmentManager::getFilteredImageUrl()` (filter: `product_small`), then prepends the application root origin from `ApplicationUrlResolver::baseOrigin()` to produce an absolute URL. Returns `null` when the product or image is absent.
 - **Nullable associations** — `customer`, `customer_user`, `billing_address`, `shipping_address`, `website` are omitted from the payload when null (not sent as `null` keys)
 - **Collections** — `line_items` and `shipping_trackings` are always present as arrays (empty if none)
 - **Timestamps** — All date fields use ISO 8601 format (`'c'`)

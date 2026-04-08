@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\Serializer;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
+use Oro\Bundle\AttachmentBundle\Entity\File;
+use Oro\Bundle\AttachmentBundle\Manager\AttachmentManager;
 use Oro\Bundle\CustomerBundle\Entity\Customer;
 use Oro\Bundle\CustomerBundle\Entity\CustomerUser;
 use Oro\Bundle\EntityExtendBundle\Entity\EnumOptionInterface;
@@ -13,16 +16,23 @@ use Oro\Bundle\OrderBundle\Entity\OrderAddress;
 use Oro\Bundle\OrderBundle\Entity\OrderLineItem;
 use Oro\Bundle\OrderBundle\Entity\OrderShippingTracking;
 use Oro\Bundle\ProductBundle\Entity\Product;
+use Oro\Bundle\ProductBundle\Entity\ProductImage;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 final class OrderPayloadSerializerTest extends TestCase
 {
     private OrderPayloadSerializer $serializer;
+    private AttachmentManager&MockObject $attachmentManager;
+    private ApplicationUrlResolver&MockObject $urlResolver;
 
     protected function setUp(): void
     {
-        $this->serializer = new OrderPayloadSerializer();
+        $this->attachmentManager = $this->createMock(AttachmentManager::class);
+        $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
+        $this->urlResolver->method('baseOrigin')->willReturn('https://oro.example.com');
+        $this->serializer = new OrderPayloadSerializer($this->attachmentManager, $this->urlResolver);
     }
 
     public function testSerializeReturnsCorrectEnvelopeStructure(): void
@@ -313,22 +323,23 @@ final class OrderPayloadSerializerTest extends TestCase
         $product = $this->createMock(Product::class);
         $product->method('getId')->willReturn(77);
 
-        $lineItem = $this->createMock(OrderLineItem::class);
-        $lineItem->method('getId')->willReturn(1);
-        $lineItem->method('getProduct')->willReturn($product);
-        $lineItem->method('getProductSku')->willReturn('SKU-001');
-        $lineItem->method('getProductName')->willReturn('Widget');
-        $lineItem->method('getFreeFormProduct')->willReturn('Custom Widget');
-        $lineItem->method('getQuantity')->willReturn(3.0);
-        $lineItem->method('getProductUnitCode')->willReturn('item');
-        $lineItem->method('getValue')->willReturn(49.99);
-        $lineItem->method('getCurrency')->willReturn('USD');
-        $lineItem->method('getPriceType')->willReturn(10);
-        $lineItem->method('getComment')->willReturn('Rush order');
-        $lineItem->method('getShipBy')->willReturn(new \DateTime('2024-03-01T00:00:00+00:00'));
-        $lineItem->method('getShippingMethod')->willReturn('flat_rate');
-        $lineItem->method('getShippingMethodType')->willReturn('primary');
-        $lineItem->method('getShippingEstimateAmount')->willReturn(7.50);
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProduct' => $product,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getFreeFormProduct' => 'Custom Widget',
+            'getQuantity' => 3.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 49.99,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+            'getComment' => 'Rush order',
+            'getShipBy' => new \DateTime('2024-03-01T00:00:00+00:00'),
+            'getShippingMethod' => 'flat_rate',
+            'getShippingMethodType' => 'primary',
+            'getShippingEstimateAmount' => 7.50,
+        ]);
 
         $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
 
@@ -340,6 +351,8 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertSame(77, $item['product_id']);
         $this->assertSame('SKU-001', $item['product_sku']);
         $this->assertSame('Widget', $item['product_name']);
+        $this->assertArrayHasKey('product_image_url', $item);
+        $this->assertNull($item['product_image_url']);
         $this->assertSame('Custom Widget', $item['free_form_product']);
         $this->assertSame(3.0, $item['quantity']);
         $this->assertSame('item', $item['unit']);
@@ -414,22 +427,18 @@ final class OrderPayloadSerializerTest extends TestCase
 
     public function testLineItemShipByDateIsIso8601(): void
     {
-        $lineItem = $this->createMock(OrderLineItem::class);
-        $lineItem->method('getId')->willReturn(1);
-        $lineItem->method('getProduct')->willReturn(null);
-        $lineItem->method('getProductSku')->willReturn('SKU-001');
-        $lineItem->method('getProductName')->willReturn('Widget');
-        $lineItem->method('getFreeFormProduct')->willReturn(null);
-        $lineItem->method('getQuantity')->willReturn(1.0);
-        $lineItem->method('getProductUnitCode')->willReturn('item');
-        $lineItem->method('getValue')->willReturn(10.0);
-        $lineItem->method('getCurrency')->willReturn('USD');
-        $lineItem->method('getPriceType')->willReturn(10);
-        $lineItem->method('getComment')->willReturn(null);
-        $lineItem->method('getShipBy')->willReturn(new \DateTime('2024-03-01T00:00:00+00:00'));
-        $lineItem->method('getShippingMethod')->willReturn(null);
-        $lineItem->method('getShippingMethodType')->willReturn(null);
-        $lineItem->method('getShippingEstimateAmount')->willReturn(5.50);
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getQuantity' => 1.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 10.0,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+            'getShipBy' => new \DateTime('2024-03-01T00:00:00+00:00'),
+            'getShippingEstimateAmount' => 5.50,
+        ]);
 
         $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
 
@@ -438,6 +447,121 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertNull($data['line_items'][0]['product_id']);
         $this->assertSame('2024-03-01T00:00:00+00:00', $data['line_items'][0]['ship_by']);
         $this->assertSame('5.50', $data['line_items'][0]['shipping_estimate_amount']);
+    }
+
+    public function testLineItemProductImageUrlIsResolvedWhenPresent(): void
+    {
+        $file = $this->createMock(File::class);
+
+        $productImage = $this->getMockBuilder(ProductImage::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getImage'])
+            ->getMock();
+        $productImage->method('getImage')->willReturn($file);
+
+        $images = new \Doctrine\Common\Collections\ArrayCollection([$productImage]);
+
+        $product = $this->createMock(Product::class);
+        $product->method('getId')->willReturn(77);
+        $product->method('getImagesByType')->with('listing')->willReturn($images);
+
+        $this->attachmentManager
+            ->expects($this->once())
+            ->method('getFilteredImageUrl')
+            ->with($file, 'product_small', '', UrlGeneratorInterface::ABSOLUTE_PATH)
+            ->willReturn('/media/cache/product_small/image.jpg');
+
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProduct' => $product,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getQuantity' => 1.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 49.99,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+        ]);
+
+        $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertSame(
+            'https://oro.example.com/media/cache/product_small/image.jpg',
+            $data['line_items'][0]['product_image_url']
+        );
+    }
+
+    public function testLineItemProductImageUrlIsNullWhenNoProduct(): void
+    {
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getQuantity' => 1.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 49.99,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+        ]);
+
+        $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertNull($data['line_items'][0]['product_image_url']);
+    }
+
+    public function testLineItemProductImageUrlIsNullWhenImagesByTypeReturnsNull(): void
+    {
+        $product = $this->createMock(Product::class);
+        $product->method('getId')->willReturn(77);
+        $product->method('getImagesByType')->with('listing')->willReturn(null);
+
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProduct' => $product,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getQuantity' => 1.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 49.99,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+        ]);
+
+        $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertNull($data['line_items'][0]['product_image_url']);
+    }
+
+    public function testLineItemProductImageUrlIsNullWhenNoImages(): void
+    {
+        $product = $this->createMock(Product::class);
+        $product->method('getId')->willReturn(77);
+        $product->method('getImagesByType')->with('listing')
+            ->willReturn(new \Doctrine\Common\Collections\ArrayCollection());
+
+        $lineItem = $this->createLineItemMock([
+            'getId' => 1,
+            'getProduct' => $product,
+            'getProductSku' => 'SKU-001',
+            'getProductName' => 'Widget',
+            'getQuantity' => 1.0,
+            'getProductUnitCode' => 'item',
+            'getValue' => 49.99,
+            'getCurrency' => 'USD',
+            'getPriceType' => 10,
+        ]);
+
+        $order = $this->createOrderMock(['getLineItems' => new \ArrayIterator([$lineItem])]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertNull($data['line_items'][0]['product_image_url']);
     }
 
     /**
@@ -543,6 +667,39 @@ final class OrderPayloadSerializerTest extends TestCase
         }
 
         return $address;
+    }
+
+    /**
+     * @param array<string, mixed> $values Method name => return value
+     */
+    private function createLineItemMock(array $values = []): OrderLineItem&MockObject
+    {
+        $defaults = [
+            'getId' => null,
+            'getProduct' => null,
+            'getProductSku' => null,
+            'getProductName' => null,
+            'getFreeFormProduct' => null,
+            'getQuantity' => null,
+            'getProductUnitCode' => null,
+            'getValue' => null,
+            'getCurrency' => null,
+            'getPriceType' => null,
+            'getComment' => null,
+            'getShipBy' => null,
+            'getShippingMethod' => null,
+            'getShippingMethodType' => null,
+            'getShippingEstimateAmount' => null,
+        ];
+
+        $merged = array_merge($defaults, $values);
+        $lineItem = $this->createMock(OrderLineItem::class);
+
+        foreach ($merged as $method => $returnValue) {
+            $lineItem->method($method)->willReturn($returnValue);
+        }
+
+        return $lineItem;
     }
 
     /**

@@ -67,6 +67,9 @@ class OrderWebhookProcessor implements MessageProcessorInterface, TopicSubscribe
         $orderId = $body['order_id'];
         $event = $body['event'];
 
+        // TODO: Consider using a DQL query with JOIN FETCH for lineItems → product → images
+        // to avoid N+1 lazy-loading in OrderPayloadSerializer::resolveProductImageUrl().
+        // Current impact is low (async worker, small line item counts per order).
         $order = $this->doctrine->getRepository(Order::class)->find($orderId);
 
         if ($order === null) {

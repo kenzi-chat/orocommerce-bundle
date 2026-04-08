@@ -29,7 +29,7 @@ define(function(require) {
             instanceKey: '',
             adminUrl: '',
             apiUrl: '',
-            tokenUrl: ''
+            baseUrl: ''
         },
 
         /**
@@ -129,8 +129,8 @@ define(function(require) {
                 params.set('admin_url', this.options.adminUrl);
             }
 
-            if (this.options.tokenUrl) {
-                params.set('token_url', this.options.tokenUrl);
+            if (this.options.baseUrl) {
+                params.set('base_url', this.options.baseUrl);
             }
 
             const popup = window.open(

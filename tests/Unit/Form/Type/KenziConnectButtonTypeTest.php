@@ -64,7 +64,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('https://app.kenzi.chat', $view->vars['kenzi_origin']);
         $this->assertSame('https://b2b.acme-corp.com/admin', $view->vars['admin_url']);
         $this->assertSame('https://b2b.acme-corp.com/admin/api', $view->vars['api_url']);
-        $this->assertSame('https://b2b.acme-corp.com/oauth2-token', $view->vars['token_url']);
+        $this->assertSame('https://b2b.acme-corp.com', $view->vars['base_url']);
     }
 
     public function testBuildViewReportsPartialWhenCredentialsNotDelivered(): void
@@ -109,7 +109,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('https://staging.kenzi.chat', $view->vars['kenzi_origin']);
         $this->assertSame('https://b2b.acme-corp.com/admin', $view->vars['admin_url']);
         $this->assertSame('https://b2b.acme-corp.com/admin/api', $view->vars['api_url']);
-        $this->assertSame('https://b2b.acme-corp.com/oauth2-token', $view->vars['token_url']);
+        $this->assertSame('https://b2b.acme-corp.com', $view->vars['base_url']);
     }
 
     public function testBuildViewUsesStoredInstanceKeyWhenAvailable(): void
@@ -148,7 +148,7 @@ final class KenziConnectButtonTypeTest extends TestCase
 
         $this->assertSame('http://localhost:4000', $view->vars['kenzi_origin']);
         $this->assertSame('http://localhost:8000/admin/api', $view->vars['api_url']);
-        $this->assertSame('http://localhost:8000/oauth2-token', $view->vars['token_url']);
+        $this->assertSame('http://localhost:8000', $view->vars['base_url']);
     }
 
     public function testBuildViewApiUrlIncludesNonStandardPort(): void
@@ -169,7 +169,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('oro.example.com', $view->vars['instance_key']);
         $this->assertSame('https://oro.example.com:8443/admin/api', $view->vars['api_url']);
         $this->assertSame('https://oro.example.com:8443/admin', $view->vars['admin_url']);
-        $this->assertSame('https://oro.example.com:8443/oauth2-token', $view->vars['token_url']);
+        $this->assertSame('https://oro.example.com:8443', $view->vars['base_url']);
     }
 
     public function testBuildViewHandlesEmptyAppBaseUrl(): void
@@ -226,7 +226,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('localhost', $view->vars['instance_key']);
         $this->assertSame('http://localhost:8000/admin', $view->vars['admin_url']);
         $this->assertSame('http://localhost:8000/admin/api', $view->vars['api_url']);
-        $this->assertSame('http://localhost:8000/oauth2-token', $view->vars['token_url']);
+        $this->assertSame('http://localhost:8000', $view->vars['base_url']);
     }
 
     /**
@@ -245,6 +245,7 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->urlResolver->method('instanceKey')->willReturn($host);
         $this->urlResolver->method('adminUrl')->willReturn($adminUrl);
         $this->urlResolver->method('apiUrl')->willReturn($adminUrl . '/api');
+        $this->urlResolver->method('baseOrigin')->willReturn($baseOrigin);
 
         $this->configManager->method('get')
             ->willReturnCallback(function (string $key) use ($values): mixed {

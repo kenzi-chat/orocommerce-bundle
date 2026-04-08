@@ -46,6 +46,9 @@ services:
 
     kenzi_oro_commerce.serializer.order_payload:
         class: Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer
+        arguments:
+            - '@oro_attachment.manager'
+            - '@kenzi_oro_commerce.application.url_resolver'
 
     kenzi_oro_commerce.webhook.dispatcher:
         class: Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher

@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Serializer;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
+use Oro\Bundle\AttachmentBundle\Manager\AttachmentManager;
 use Oro\Bundle\CustomerBundle\Entity\Customer;
 use Oro\Bundle\CustomerBundle\Entity\CustomerUser;
 use Oro\Bundle\OrderBundle\Entity\Order;
 use Oro\Bundle\OrderBundle\Entity\OrderAddress;
 use Oro\Bundle\OrderBundle\Entity\OrderLineItem;
 use Oro\Bundle\OrderBundle\Entity\OrderShippingTracking;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * Converts an Order entity into the JSON payload structure
@@ -17,6 +20,12 @@ use Oro\Bundle\OrderBundle\Entity\OrderShippingTracking;
  */
 class OrderPayloadSerializer
 {
+    public function __construct(
+        private readonly AttachmentManager $attachmentManager,
+        private readonly ApplicationUrlResolver $urlResolver,
+    ) {
+    }
+
     /**
      * Build the top-level webhook payload for an order event.
      *
@@ -176,6 +185,7 @@ class OrderPayloadSerializer
             'product_id' => $lineItem->getProduct()?->getId(), /** @phpstan-ignore nullsafe.neverNull */
             'product_sku' => $lineItem->getProductSku(),
             'product_name' => $lineItem->getProductName(),
+            'product_image_url' => $this->resolveProductImageUrl($lineItem),
             'free_form_product' => $lineItem->getFreeFormProduct(),
             'quantity' => $lineItem->getQuantity(),
             'unit' => $lineItem->getProductUnitCode(),
@@ -188,6 +198,38 @@ class OrderPayloadSerializer
             'shipping_method_type' => $lineItem->getShippingMethodType(),
             'shipping_estimate_amount' => $this->formatMoney($lineItem->getShippingEstimateAmount()),
         ];
+    }
+
+    private function resolveProductImageUrl(OrderLineItem $lineItem): ?string
+    {
+        $product = $lineItem->getProduct();
+        if ($product === null) {
+            return null;
+        }
+
+        $images = $product->getImagesByType('listing');
+        if ($images === null || $images->isEmpty()) {
+            return null;
+        }
+
+        $productImage = $images->first();
+        if ($productImage === false) {
+            return null;
+        }
+
+        $file = $productImage->getImage();
+        if ($file === null) {
+            return null;
+        }
+
+        $path = $this->attachmentManager->getFilteredImageUrl(
+            $file,
+            'product_small',
+            '',
+            UrlGeneratorInterface::ABSOLUTE_PATH
+        );
+
+        return $this->urlResolver->baseOrigin() . $path;
     }
 
     private function resolveStatus(Order $order): string
