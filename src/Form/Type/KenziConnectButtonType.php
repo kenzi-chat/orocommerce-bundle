@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Form\Type;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use Symfony\Component\Form\AbstractType;
@@ -25,6 +26,7 @@ class KenziConnectButtonType extends AbstractType
 {
     public function __construct(
         private readonly ConfigManager $configManager,
+        private readonly ApplicationUrlResolver $urlResolver,
     ) {
     }
 
@@ -47,22 +49,6 @@ class KenziConnectButtonType extends AbstractType
     #[\Override]
     public function buildView(FormView $view, FormInterface $form, array $options): void
     {
-        // oro_ui.application_url is the canonical application URL, set during
-        // oro:install and editable under System Configuration > General Setup.
-        // Oro's own bundles (EmailBundle, SyncBundle) use this as the
-        // authoritative source for the application's origin.
-        $appUrl = (string) $this->configManager->get('oro_ui.application_url');
-        $parts = parse_url($appUrl);
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'] ?? '';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-        $baseOrigin = $scheme . '://' . $host . $port;
-
-        // Admin URL = application origin + /admin path.
-        // Kenzi stores this so agents can deep-link directly to orders,
-        // customers, and products in the admin panel.
-        $adminUrl = $baseOrigin . '/admin';
-
         // Connection config is global — one integration per Oro instance.
         $connectedAt = (string) $this->configManager->get(
             Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CONNECTED_AT)
@@ -78,11 +64,8 @@ class KenziConnectButtonType extends AbstractType
         // Derive it from the application hostname so the popup receives
         // an instance_key for the initial handshake.
         if ($instanceKey === '') {
-            $instanceKey = $host;
+            $instanceKey = $this->urlResolver->instanceKey();
         }
-
-        // api_url is the back-office API — derived from admin URL, not hardcoded.
-        $apiUrl = $adminUrl . '/api';
 
         // app_base_url is the Kenzi app origin — used to open the connect popup
         // and validate incoming postMessage events. Seeded by data migration
@@ -96,8 +79,8 @@ class KenziConnectButtonType extends AbstractType
         $view->vars['instance_key'] = $instanceKey;
         $view->vars['connected_at'] = $connectedAt;
         $view->vars['kenzi_origin'] = $kenziOrigin;
-        $view->vars['admin_url'] = $adminUrl;
-        $view->vars['api_url'] = $apiUrl;
+        $view->vars['admin_url'] = $this->urlResolver->adminUrl();
+        $view->vars['api_url'] = $this->urlResolver->apiUrl();
     }
 
     #[\Override]

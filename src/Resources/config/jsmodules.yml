@@ -1,3 +1,6 @@
+aliases:
+    kenziorocommerce: bundles/kenziorocommerce
+
 dynamic-imports:
     kenziorocommerce:
         - kenziorocommerce/js/app/components/kenzi-connect-component

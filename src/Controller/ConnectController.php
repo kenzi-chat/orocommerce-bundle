@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Controller;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use Oro\Bundle\SecurityBundle\Attribute\AclAncestor;
@@ -23,6 +24,7 @@ class ConnectController
 {
     public function __construct(
         private readonly ConfigManager $configManager,
+        private readonly ApplicationUrlResolver $urlResolver,
     ) {
     }
 
@@ -50,19 +52,19 @@ class ConnectController
             return new JsonResponse(['error' => 'Missing required fields'], 400);
         }
 
-        $appUrl = (string) $this->configManager->get('oro_ui.application_url');
-        $instanceKey = parse_url($appUrl, PHP_URL_HOST) ?: '';
+        $instanceKey = $this->urlResolver->instanceKey();
 
         if ($instanceKey === '') {
             return new JsonResponse(['error' => 'Could not determine application hostname'], 422);
         }
 
-        $this->setConfig(Configuration::PARAM_NAME_WORKSPACE_ID, $workspaceId);
-        $this->setConfig(Configuration::PARAM_NAME_SHARED_SECRET, $sharedSecret);
-        $this->setConfig(Configuration::PARAM_NAME_INSTANCE_KEY, $instanceKey);
-        $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, (new \DateTimeImmutable())->format('c'));
-        $this->setConfig(Configuration::PARAM_NAME_SYNC_ENABLED, true);
-        $this->configManager->flush();
+        $this->storeConnection([
+            Configuration::PARAM_NAME_WORKSPACE_ID => $workspaceId,
+            Configuration::PARAM_NAME_SHARED_SECRET => $sharedSecret,
+            Configuration::PARAM_NAME_INSTANCE_KEY => $instanceKey,
+            Configuration::PARAM_NAME_CONNECTED_AT => (new \DateTimeImmutable())->format('c'),
+            Configuration::PARAM_NAME_SYNC_ENABLED => true,
+        ]);
 
         return new JsonResponse(['status' => 'connected']);
     }
@@ -74,24 +76,36 @@ class ConnectController
     #[AclAncestor('oro_config_system')]
     public function disconnect(): JsonResponse
     {
-        $this->setConfig(Configuration::PARAM_NAME_SYNC_ENABLED, false);
-        $this->setConfig(Configuration::PARAM_NAME_SHARED_SECRET, '');
-        $this->setConfig(Configuration::PARAM_NAME_WORKSPACE_ID, '');
-        $this->setConfig(Configuration::PARAM_NAME_INSTANCE_KEY, '');
-        $this->setConfig(Configuration::PARAM_NAME_CONNECTED_AT, '');
-        $this->configManager->flush();
+        $this->storeConnection([
+            Configuration::PARAM_NAME_SYNC_ENABLED => false,
+            Configuration::PARAM_NAME_SHARED_SECRET => '',
+            Configuration::PARAM_NAME_WORKSPACE_ID => '',
+            Configuration::PARAM_NAME_INSTANCE_KEY => '',
+            Configuration::PARAM_NAME_CONNECTED_AT => '',
+        ]);
 
         return new JsonResponse(['status' => 'disconnected']);
     }
 
     /**
-     * @param string|bool $value
+     * Writes a set of connection parameters and flushes in a single operation.
+     *
+     * Both connect() and disconnect() evolve the connection record shape by
+     * touching the same set of `PARAM_NAME_*` keys. Routing every write through
+     * this helper keeps the "what fields make up a connection" list in one
+     * place and prevents one action from drifting out of sync with the other.
+     *
+     * @param array<string, string|bool> $values  Map of Configuration::PARAM_NAME_* => value
      */
-    private function setConfig(string $paramName, $value): void
+    private function storeConnection(array $values): void
     {
-        $this->configManager->set(
-            Configuration::getConfigKeyByName($paramName),
-            $value
-        );
+        foreach ($values as $paramName => $value) {
+            $this->configManager->set(
+                Configuration::getConfigKeyByName($paramName),
+                $value
+            );
+        }
+
+        $this->configManager->flush();
     }
 }

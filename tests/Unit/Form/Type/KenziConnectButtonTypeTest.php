@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\Form\Type;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Kenzi\OroCommerceBundle\Form\Type\KenziConnectButtonType;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
@@ -15,12 +16,14 @@ use Symfony\Component\Form\FormView;
 final class KenziConnectButtonTypeTest extends TestCase
 {
     private ConfigManager&MockObject $configManager;
+    private ApplicationUrlResolver&MockObject $urlResolver;
     private KenziConnectButtonType $type;
 
     protected function setUp(): void
     {
         $this->configManager = $this->createMock(ConfigManager::class);
-        $this->type = new KenziConnectButtonType($this->configManager);
+        $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
+        $this->type = new KenziConnectButtonType($this->configManager, $this->urlResolver);
     }
 
     public function testConfigureOptionsSetsUnmapped(): void
@@ -204,14 +207,24 @@ final class KenziConnectButtonTypeTest extends TestCase
      */
     private function stubConfig(array $values): void
     {
+        $appUrl = (string) ($values['oro_ui.application_url'] ?? '');
+        $parts = parse_url($appUrl);
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $baseOrigin = $host === '' ? '' : $scheme . '://' . $host . $port;
+        $adminUrl = $baseOrigin === '' ? '/admin' : $baseOrigin . '/admin';
+
+        $this->urlResolver->method('instanceKey')->willReturn($host);
+        $this->urlResolver->method('adminUrl')->willReturn($adminUrl);
+        $this->urlResolver->method('apiUrl')->willReturn($adminUrl . '/api');
+
         $this->configManager->method('get')
             ->willReturnCallback(function (string $key) use ($values): mixed {
-                // Return directly if the full key matches (e.g. 'oro_ui.application_url')
                 if (isset($values[$key])) {
                     return $values[$key];
                 }
 
-                // Strip Kenzi root node prefix for Kenzi config params
                 $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
 
                 return $values[$paramName] ?? null;

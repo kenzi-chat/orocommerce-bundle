@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\Controller;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\Controller\ConnectController;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
@@ -15,14 +16,18 @@ final class ConnectControllerTest extends TestCase
 {
     /** @var ConfigManager&MockObject */
     private MockObject $configManager;
+    /** @var ApplicationUrlResolver&MockObject */
+    private MockObject $urlResolver;
     private ConnectController $controller;
 
     protected function setUp(): void
     {
         $this->configManager = $this->createMock(ConfigManager::class);
+        $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
 
         $this->controller = new ConnectController(
             $this->configManager,
+            $this->urlResolver,
         );
     }
 
@@ -256,9 +261,8 @@ final class ConnectControllerTest extends TestCase
 
     private function stubAppUrl(string $appUrl): void
     {
-        $this->configManager->method('get')
-            ->with('oro_ui.application_url')
-            ->willReturn($appUrl);
+        $host = (string) (parse_url($appUrl, PHP_URL_HOST) ?: '');
+        $this->urlResolver->method('instanceKey')->willReturn($host);
     }
 
     /**

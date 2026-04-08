@@ -78,12 +78,9 @@ class OrderWebhookProcessor implements MessageProcessorInterface, TopicSubscribe
             return self::REJECT;
         }
 
-        $website = $order->getWebsite();
-
         if (!$this->dispatcher->isEnabled()) {
             $this->logger->debug('Kenzi: webhook skipped, sync not enabled', [
                 'order_id' => $orderId,
-                'website_id' => $website?->getId(),
                 'event' => $event,
             ]);
 
@@ -92,7 +89,7 @@ class OrderWebhookProcessor implements MessageProcessorInterface, TopicSubscribe
 
         try {
             $payload = $this->serializer->serialize($order, $event);
-            $this->dispatcher->dispatch($payload, $event, $website);
+            $this->dispatcher->dispatch($payload, $event);
         } catch (\JsonException $e) {
             $this->logger->error('Kenzi: webhook payload encoding failed (permanent)', [
                 'order_id' => $orderId,

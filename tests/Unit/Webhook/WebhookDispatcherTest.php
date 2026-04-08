@@ -7,7 +7,6 @@ namespace Kenzi\OroCommerceBundle\Tests\Unit\Webhook;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -76,7 +75,6 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchSendsCorrectHmacSignature(): void
     {
-        $website = $this->createWebsiteMock(1);
         $secret = 'test_secret_abc123';
         $this->stubConfig(true, 'https://kenzi.test', $secret, 'test.store.com');
 
@@ -107,7 +105,7 @@ final class WebhookDispatcherTest extends TestCase
             )
             ->willReturn($this->createResponseMock(200));
 
-        $this->dispatcher->dispatch($payload, 'order.created', $website);
+        $this->dispatcher->dispatch($payload, 'order.created');
     }
 
     /**
@@ -115,7 +113,6 @@ final class WebhookDispatcherTest extends TestCase
      */
     public function testDispatchThrowsOnNon2xxResponse(int $statusCode): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
@@ -124,7 +121,7 @@ final class WebhookDispatcherTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/HTTP ' . $statusCode . '/');
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
     /**
@@ -140,18 +137,16 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchSucceedsOnUpperBound2xx(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock(299));
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
     public function testDispatchThrowsTransportExceptionFromRequest(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $exception = new class ('Connection timed out') extends \RuntimeException implements TransportExceptionInterface {};
@@ -160,12 +155,11 @@ final class WebhookDispatcherTest extends TestCase
         $this->expectException(TransportExceptionInterface::class);
         $this->expectExceptionMessage('Connection timed out');
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
     public function testDispatchThrowsTransportExceptionFromGetStatusCode(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $exception = new class ('DNS resolution failed') extends \RuntimeException implements TransportExceptionInterface {};
@@ -176,23 +170,21 @@ final class WebhookDispatcherTest extends TestCase
         $this->expectException(TransportExceptionInterface::class);
         $this->expectExceptionMessage('DNS resolution failed');
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
     public function testDispatchThrowsJsonExceptionOnEncodingFailure(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
         $this->httpClient->expects($this->never())->method('request');
 
         $this->expectException(\JsonException::class);
 
-        $this->dispatcher->dispatch(['bad' => \NAN], 'order.created', $website);
+        $this->dispatcher->dispatch(['bad' => \NAN], 'order.created');
     }
 
     public function testEachDispatchGeneratesUniqueDeliveryId(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
 
         $deliveryIds = [];
@@ -202,26 +194,15 @@ final class WebhookDispatcherTest extends TestCase
                 return $this->createResponseMock(200);
             });
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
 
         $this->assertCount(2, $deliveryIds);
         $this->assertNotSame($deliveryIds[0], $deliveryIds[1]);
     }
 
-    public function testDispatchWorksWithNullWebsite(): void
-    {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
-        $this->httpClient->expects($this->once())
-            ->method('request')
-            ->willReturn($this->createResponseMock(200));
-
-        $this->dispatcher->dispatch(['data' => []], 'order.created', null);
-    }
-
     public function testDispatchDerivesWebhookUrlFromAppBaseUrl(): void
     {
-        $website = $this->createWebsiteMock(1);
         $this->stubConfig(true, 'https://app.kenzi.chat', 'secret', 'store.com');
 
         $this->httpClient->expects($this->once())
@@ -233,12 +214,11 @@ final class WebhookDispatcherTest extends TestCase
             )
             ->willReturn($this->createResponseMock(200));
 
-        $this->dispatcher->dispatch(['data' => []], 'order.created', $website);
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
     public function testSignatureUsesRawBodyBytes(): void
     {
-        $website = $this->createWebsiteMock(1);
         $secret = 'known_secret';
         $this->stubConfig(true, 'https://kenzi.test', $secret, 'store.com');
 
@@ -253,7 +233,7 @@ final class WebhookDispatcherTest extends TestCase
                 return $this->createResponseMock(200);
             });
 
-        $this->dispatcher->dispatch($payload, 'order.created', $website);
+        $this->dispatcher->dispatch($payload, 'order.created');
 
         // Verify the exact same bytes were used for signing and sending
         $expectedSignature = base64_encode(hash_hmac('sha256', $capturedBody, $secret, true));
@@ -281,14 +261,6 @@ final class WebhookDispatcherTest extends TestCase
                     default => null,
                 };
             });
-    }
-
-    /** @return Website&MockObject */
-    private function createWebsiteMock(int $id): MockObject
-    {
-        $website = $this->createMock(Website::class);
-        $website->method('getId')->willReturn($id);
-        return $website;
     }
 
     /** @return ResponseInterface&MockObject */

@@ -11,7 +11,6 @@ use Kenzi\OroCommerceBundle\Async\OrderWebhookTopic;
 use Kenzi\OroCommerceBundle\Serializer\OrderPayloadSerializer;
 use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\OrderBundle\Entity\Order;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
 use Oro\Component\MessageQueue\Client\MessageProducerInterface;
 use Oro\Component\MessageQueue\Consumption\MessageProcessorInterface;
 use Oro\Component\MessageQueue\Transport\MessageInterface;
@@ -52,9 +51,7 @@ final class OrderWebhookProcessorTest extends TestCase
 
     public function testDispatchesWebhookAndAcks(): void
     {
-        $website = $this->createMock(Website::class);
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -67,7 +64,7 @@ final class OrderWebhookProcessorTest extends TestCase
 
         $this->dispatcher->expects($this->once())
             ->method('dispatch')
-            ->with($payload, 'order.created', $website);
+            ->with($payload, 'order.created');
 
         $this->messageProducer->expects($this->never())->method('send');
 
@@ -100,9 +97,7 @@ final class OrderWebhookProcessorTest extends TestCase
 
     public function testAcksWhenSyncDisabledForWebsite(): void
     {
-        $website = $this->createMock(Website::class);
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(false);
@@ -122,7 +117,6 @@ final class OrderWebhookProcessorTest extends TestCase
     public function testSchedulesRetryOnFirstFailure(): void
     {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -154,7 +148,6 @@ final class OrderWebhookProcessorTest extends TestCase
     public function testSchedulesRetryWithIncreasingDelay(): void
     {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -188,7 +181,6 @@ final class OrderWebhookProcessorTest extends TestCase
     public function testRetryDelaysMatchExpectedSchedule(): void
     {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -234,9 +226,7 @@ final class OrderWebhookProcessorTest extends TestCase
 
     public function testRejectsAfterMaxRetries(): void
     {
-        $website = $this->createMock(Website::class);
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -259,7 +249,6 @@ final class OrderWebhookProcessorTest extends TestCase
     public function testRejectsOnJsonExceptionWithoutRetry(): void
     {
         $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
 
         $this->stubOrderLookup($order);
         $this->dispatcher->method('isEnabled')->willReturn(true);
@@ -275,49 +264,6 @@ final class OrderWebhookProcessorTest extends TestCase
         );
 
         $this->assertSame(MessageProcessorInterface::REJECT, $result);
-    }
-
-    // -- Website scoping ──────────────────────────────────────────────
-
-    public function testPassesOrderWebsiteToDispatcher(): void
-    {
-        $website = $this->createMock(Website::class);
-        $website->method('getId')->willReturn(7);
-
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn($website);
-
-        $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabled')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.updated', $this->identicalTo($website));
-
-        $this->processor->process(
-            $this->createMessage(['order_id' => 42, 'event' => 'order.updated']),
-            $this->createMock(SessionInterface::class)
-        );
-    }
-
-    public function testPassesNullWebsiteWhenOrderHasNoWebsite(): void
-    {
-        $order = $this->createMock(Order::class);
-        $order->method('getWebsite')->willReturn(null);
-
-        $this->stubOrderLookup($order);
-        $this->dispatcher->method('isEnabled')->willReturn(true);
-        $this->serializer->method('serialize')->willReturn(['data' => []]);
-
-        $this->dispatcher->expects($this->once())
-            ->method('dispatch')
-            ->with($this->anything(), 'order.created', null);
-
-        $this->processor->process(
-            $this->createMessage(['order_id' => 42, 'event' => 'order.created']),
-            $this->createMock(SessionInterface::class)
-        );
     }
 
     // -- Topic subscription ───────────────────────────────────────────

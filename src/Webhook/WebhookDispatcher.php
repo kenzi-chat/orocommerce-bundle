@@ -6,7 +6,6 @@ namespace Kenzi\OroCommerceBundle\Webhook;
 
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
-use Oro\Bundle\WebsiteBundle\Entity\Website;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
@@ -64,15 +63,12 @@ class WebhookDispatcher
      *
      * @param array<string, mixed> $payload  Pre-serialized payload from OrderPayloadSerializer
      * @param non-empty-string     $event    Event name (e.g. "order.created")
-     * @param Website|null         $website  Website the order belongs to (for logging)
      *
      * @throws \JsonException
      * @throws TransportExceptionInterface
      */
-    public function dispatch(array $payload, string $event, ?Website $website = null): void
+    public function dispatch(array $payload, string $event): void
     {
-        $websiteId = $website?->getId();
-
         $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
         $webhookUrl = $appBaseUrl . '/webhooks/oro-commerce';
         $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
@@ -101,7 +97,6 @@ class WebhookDispatcher
 
         if ($statusCode >= 200 && $statusCode < 300) {
             $this->logger->info('Webhook dispatched successfully', [
-                'website_id' => $websiteId,
                 'event' => $event,
                 'delivery_id' => $deliveryId,
                 'status_code' => $statusCode,
