@@ -12,7 +12,6 @@ use Oro\Bundle\OrderBundle\Entity\Order;
 use Oro\Bundle\OrderBundle\Entity\OrderAddress;
 use Oro\Bundle\OrderBundle\Entity\OrderLineItem;
 use Oro\Bundle\OrderBundle\Entity\OrderShippingTracking;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * Converts an Order entity into the JSON payload structure
@@ -48,6 +47,8 @@ class OrderPayloadSerializer
      */
     private function serializeOrder(Order $order): array
     {
+        $baseOrigin = $this->urlResolver->baseOrigin();
+
         $data = [
             'id' => $order->getId(),
             'identifier' => $order->getIdentifier(),
@@ -102,7 +103,7 @@ class OrderPayloadSerializer
 
         $lineItems = [];
         foreach ($order->getLineItems() as $lineItem) {
-            $lineItems[] = $this->serializeLineItem($lineItem);
+            $lineItems[] = $this->serializeLineItem($lineItem, $baseOrigin);
         }
         $data['line_items'] = $lineItems;
 
@@ -178,14 +179,14 @@ class OrderPayloadSerializer
     /**
      * @return array<string, mixed>
      */
-    private function serializeLineItem(OrderLineItem $lineItem): array
+    private function serializeLineItem(OrderLineItem $lineItem, string $baseOrigin): array
     {
         return [
             'id' => $lineItem->getId(),
             'product_id' => $lineItem->getProduct()?->getId(), /** @phpstan-ignore nullsafe.neverNull */
             'product_sku' => $lineItem->getProductSku(),
             'product_name' => $lineItem->getProductName(),
-            'product_image_url' => $this->resolveProductImageUrl($lineItem),
+            'product_image_url' => $this->resolveProductImageUrl($lineItem, $baseOrigin),
             'free_form_product' => $lineItem->getFreeFormProduct(),
             'quantity' => $lineItem->getQuantity(),
             'unit' => $lineItem->getProductUnitCode(),
@@ -200,7 +201,7 @@ class OrderPayloadSerializer
         ];
     }
 
-    private function resolveProductImageUrl(OrderLineItem $lineItem): ?string
+    private function resolveProductImageUrl(OrderLineItem $lineItem, string $baseOrigin): ?string
     {
         $product = $lineItem->getProduct();
         if ($product === null) {
@@ -208,7 +209,7 @@ class OrderPayloadSerializer
         }
 
         $images = $product->getImagesByType('listing');
-        if ($images === null || $images->isEmpty()) {
+        if ($images->isEmpty()) {
             return null;
         }
 
@@ -222,14 +223,13 @@ class OrderPayloadSerializer
             return null;
         }
 
-        $path = $this->attachmentManager->getFilteredImageUrl(
-            $file,
-            'product_small',
-            '',
-            UrlGeneratorInterface::ABSOLUTE_PATH
-        );
+        $path = $this->attachmentManager->getFilteredImageUrl($file, 'product_small');
 
-        return $this->urlResolver->baseOrigin() . $path;
+        if ($path === '') {
+            return null;
+        }
+
+        return $baseOrigin . $path;
     }
 
     private function resolveStatus(Order $order): string

@@ -19,7 +19,6 @@ use Oro\Bundle\ProductBundle\Entity\Product;
 use Oro\Bundle\ProductBundle\Entity\ProductImage;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 final class OrderPayloadSerializerTest extends TestCase
 {
@@ -322,6 +321,8 @@ final class OrderPayloadSerializerTest extends TestCase
     {
         $product = $this->createMock(Product::class);
         $product->method('getId')->willReturn(77);
+        $product->method('getImagesByType')->with('listing')
+            ->willReturn(new \Doctrine\Common\Collections\ArrayCollection());
 
         $lineItem = $this->createLineItemMock([
             'getId' => 1,
@@ -351,8 +352,6 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertSame(77, $item['product_id']);
         $this->assertSame('SKU-001', $item['product_sku']);
         $this->assertSame('Widget', $item['product_name']);
-        $this->assertArrayHasKey('product_image_url', $item);
-        $this->assertNull($item['product_image_url']);
         $this->assertSame('Custom Widget', $item['free_form_product']);
         $this->assertSame(3.0, $item['quantity']);
         $this->assertSame('item', $item['unit']);
@@ -452,13 +451,7 @@ final class OrderPayloadSerializerTest extends TestCase
     public function testLineItemProductImageUrlIsResolvedWhenPresent(): void
     {
         $file = $this->createMock(File::class);
-
-        $productImage = $this->getMockBuilder(ProductImage::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getImage'])
-            ->getMock();
-        $productImage->method('getImage')->willReturn($file);
-
+        $productImage = $this->createProductImageStub($file);
         $images = new \Doctrine\Common\Collections\ArrayCollection([$productImage]);
 
         $product = $this->createMock(Product::class);
@@ -468,7 +461,7 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->attachmentManager
             ->expects($this->once())
             ->method('getFilteredImageUrl')
-            ->with($file, 'product_small', '', UrlGeneratorInterface::ABSOLUTE_PATH)
+            ->with($file, 'product_small')
             ->willReturn('/media/cache/product_small/image.jpg');
 
         $lineItem = $this->createLineItemMock([
@@ -513,11 +506,21 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertNull($data['line_items'][0]['product_image_url']);
     }
 
-    public function testLineItemProductImageUrlIsNullWhenImagesByTypeReturnsNull(): void
+    public function testLineItemProductImageUrlIsNullWhenFilteredUrlIsEmpty(): void
     {
+        $file = $this->createMock(File::class);
+        $productImage = $this->createProductImageStub($file);
+        $images = new \Doctrine\Common\Collections\ArrayCollection([$productImage]);
+
         $product = $this->createMock(Product::class);
         $product->method('getId')->willReturn(77);
-        $product->method('getImagesByType')->with('listing')->willReturn(null);
+        $product->method('getImagesByType')->with('listing')->willReturn($images);
+
+        $this->attachmentManager
+            ->expects($this->once())
+            ->method('getFilteredImageUrl')
+            ->with($file, 'product_small')
+            ->willReturn('');
 
         $lineItem = $this->createLineItemMock([
             'getId' => 1,
@@ -700,6 +703,28 @@ final class OrderPayloadSerializerTest extends TestCase
         }
 
         return $lineItem;
+    }
+
+    /**
+     * Build a ProductImage stub that returns the given File from getImage().
+     *
+     * ProductImage::getImage() is a magic method declared via @method and
+     * implemented by ExtendEntityTrait::__call. PHPUnit's addMethods() is
+     * fragile across Oro 6.0/6.1 trait versions (and deprecated in PHPUnit 10+);
+     * a real subclass method bypasses __call entirely.
+     */
+    private function createProductImageStub(File $file): ProductImage
+    {
+        return new class ($file) extends ProductImage {
+            public function __construct(private readonly File $stubImage)
+            {
+            }
+
+            public function getImage(): File
+            {
+                return $this->stubImage;
+            }
+        };
     }
 
     /**
