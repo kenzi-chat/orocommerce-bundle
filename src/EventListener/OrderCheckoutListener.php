@@ -48,7 +48,6 @@ class OrderCheckoutListener
 
         $orderId = $order->getId();
 
-        /** @phpstan-ignore identical.alwaysFalse (getId() returns null before persistence) */
         if ($orderId === null) {
             return;
         }

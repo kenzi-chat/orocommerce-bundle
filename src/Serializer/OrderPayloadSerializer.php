@@ -69,8 +69,8 @@ class OrderPayloadSerializer
             'source_entity_class' => $order->getSourceEntityClass(),
             'source_entity_id' => $order->getSourceEntityId(),
             'source_entity_identifier' => $order->getSourceEntityIdentifier(),
-            'created_at' => $order->getCreatedAt()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
-            'updated_at' => $order->getUpdatedAt()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
+            'created_at' => self::formatDateTime($order->getCreatedAt()),
+            'updated_at' => self::formatDateTime($order->getUpdatedAt()),
         ];
 
         $customer = $order->getCustomer();
@@ -181,9 +181,11 @@ class OrderPayloadSerializer
      */
     private function serializeLineItem(OrderLineItem $lineItem, string $baseOrigin): array
     {
+        $product = $lineItem->getProduct();
+
         return [
             'id' => $lineItem->getId(),
-            'product_id' => $lineItem->getProduct()?->getId(), /** @phpstan-ignore nullsafe.neverNull */
+            'product_id' => $product !== null ? $product->getId() : null,
             'product_sku' => $lineItem->getProductSku(),
             'product_name' => $lineItem->getProductName(),
             'product_image_url' => $this->resolveProductImageUrl($lineItem, $baseOrigin),
@@ -194,7 +196,7 @@ class OrderPayloadSerializer
             'currency' => $lineItem->getCurrency(),
             'price_type' => $lineItem->getPriceType(),
             'comment' => $lineItem->getComment(),
-            'ship_by' => $lineItem->getShipBy()?->format('c'), /** @phpstan-ignore nullsafe.neverNull */
+            'ship_by' => self::formatDateTime($lineItem->getShipBy()),
             'shipping_method' => $lineItem->getShippingMethod(),
             'shipping_method_type' => $lineItem->getShippingMethodType(),
             'shipping_estimate_amount' => $this->formatMoney($lineItem->getShippingEstimateAmount()),
@@ -236,7 +238,6 @@ class OrderPayloadSerializer
     {
         $internalStatus = $order->getInternalStatus();
 
-        /** @phpstan-ignore identical.alwaysFalse (Oro PHPDoc says non-null, but null is possible for new orders) */
         if ($internalStatus === null) {
             return 'unknown';
         }
@@ -251,5 +252,17 @@ class OrderPayloadSerializer
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    /**
+     * Format a DateTime as ISO 8601, or null if absent.
+     *
+     * Accepts ?DateTimeInterface explicitly so callers can pass Oro getters
+     * whose PHPDocs claim non-null returns while the implementations are
+     * nullable (e.g. getCreatedAt, getUpdatedAt, getShipBy).
+     */
+    private static function formatDateTime(?\DateTimeInterface $dateTime): ?string
+    {
+        return $dateTime?->format('c');
     }
 }

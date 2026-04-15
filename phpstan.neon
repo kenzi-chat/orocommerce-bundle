@@ -4,6 +4,13 @@ includes:
 parameters:
     level: 6
     phpVersion: 80100
+    # Oro interface PHPDocs declare non-null return types that the implementations
+    # contradict — e.g. ProductHolderInterface::getProduct @return Product while
+    # OrderLineItem::$product is ?Product with onDelete: SET NULL, DatesAwareInterface
+    # getters declared non-null while fields are nullable, and getId() declared
+    # non-null while IDs are null pre-persistence. The interface PHPDocs lie, so don't
+    # let them drive alwaysTrue/alwaysFalse verdicts against defensive null checks.
+    treatPhpDocTypesAsCertain: false
     paths:
         - src
         - tests
