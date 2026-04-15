@@ -68,7 +68,8 @@ class CredentialDelivery
         $clientIdentifier = $client->getIdentifier();
         // Oro's Client::getPlainSecret() is declared @return string, but the
         // underlying property is untyped and nullable. After a DB reload,
-        // setPlainSecret() has never been called, so null is returned.
+        // setPlainSecret() has never been called, so null is returned; a
+        // freshly-initialized entity can also hold "" before assignment.
         /** @var string|null $clientSecret */
         $clientSecret = $client->getPlainSecret();
 
@@ -82,7 +83,7 @@ class CredentialDelivery
         // it back via getClient() gives us the hash, not the original value.
         // Since we can't send a hashed secret to Kenzi, we revoke the
         // unusable client so the next deliver() call starts fresh.
-        if ($clientSecret === '') {
+        if ($clientSecret === null || $clientSecret === '') {
             $this->logger->warning('OAuth2 client exists but plain secret is unavailable, revoking');
             $this->revokeAndClear($client);
             return false;
