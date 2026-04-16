@@ -53,6 +53,7 @@ class OrderPayloadSerializer
             'id' => $order->getId(),
             'identifier' => $order->getIdentifier(),
             'status' => $this->resolveStatus($order),
+            'shipping_status' => $this->resolveShippingStatus($order),
             'email' => $order->getEmail(),
             'currency' => $order->getCurrency(),
             'subtotal' => $this->formatMoney($order->getSubtotal()),
@@ -243,6 +244,17 @@ class OrderPayloadSerializer
         }
 
         return (string) $internalStatus->getId();
+    }
+
+    private function resolveShippingStatus(Order $order): ?string
+    {
+        $shippingStatus = $order->getShippingStatus();
+
+        if ($shippingStatus === null) {
+            return null;
+        }
+
+        return (string) $shippingStatus->getId();
     }
 
     private function formatMoney(float|int|string|null $value): ?string

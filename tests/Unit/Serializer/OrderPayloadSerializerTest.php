@@ -175,6 +175,27 @@ final class OrderPayloadSerializerTest extends TestCase
         $this->assertSame('unknown', $data['status']);
     }
 
+    public function testResolveShippingStatusReturnsShippingStatusId(): void
+    {
+        $shippingStatus = $this->createMock(EnumOptionInterface::class);
+        $shippingStatus->method('getId')->willReturn('shipped');
+
+        $order = $this->createOrderMock(['getShippingStatus' => $shippingStatus]);
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertSame('shipped', $data['shipping_status']);
+    }
+
+    public function testResolveShippingStatusReturnsNullWhenShippingStatusIsNull(): void
+    {
+        $order = $this->createOrderMock();
+
+        $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
+
+        $this->assertNull($data['shipping_status']);
+    }
+
     public function testCustomerIsIncludedWhenPresent(): void
     {
         $customer = $this->createMock(Customer::class);
@@ -570,12 +591,10 @@ final class OrderPayloadSerializerTest extends TestCase
     /**
      * Create an Order mock with configurable return values.
      *
-     * getInternalStatus is a @method magic method (Oro entity extend),
-     * so we declare it via addMethods. All real methods we stub must be
-     * listed in onlyMethods — PHPUnit 9 requires both when combining them.
-     *
-     * Uses willReturnCallback to allow a single configuration point
-     * per method rather than trying to reconfigure stubs.
+     * We mock ExtendedOrderStub rather than Order directly: that subclass
+     * materializes getInternalStatus()/getShippingStatus() (Oro @method magic
+     * accessors) as real methods, so onlyMethods() can stub them like any
+     * declared method. Same pattern as createProductImageStub below.
      *
      * @param array<string, mixed> $values Method name => return value
      */
@@ -585,6 +604,7 @@ final class OrderPayloadSerializerTest extends TestCase
             'getId' => null,
             'getIdentifier' => null,
             'getInternalStatus' => null,
+            'getShippingStatus' => null,
             'getEmail' => null,
             'getCurrency' => null,
             'getSubtotal' => null,
@@ -614,7 +634,7 @@ final class OrderPayloadSerializerTest extends TestCase
 
         $merged = array_merge($defaults, $values);
 
-        $order = $this->getMockBuilder(Order::class)
+        $order = $this->getMockBuilder(ExtendedOrderStub::class)
             ->disableOriginalConstructor()
             ->onlyMethods([
                 'getId', 'getIdentifier', 'getEmail', 'getCurrency',
@@ -627,8 +647,8 @@ final class OrderPayloadSerializerTest extends TestCase
                 'getCustomer', 'getCustomerUser',
                 'getBillingAddress', 'getShippingAddress', 'getWebsite',
                 'getLineItems', 'getShippingTrackings',
+                'getInternalStatus', 'getShippingStatus',
             ])
-            ->addMethods(['getInternalStatus'])
             ->getMock();
 
         foreach ($merged as $method => $returnValue) {
@@ -739,5 +759,26 @@ final class OrderPayloadSerializerTest extends TestCase
         $mock->method('getValue')->willReturn($value);
 
         return $mock;
+    }
+}
+
+/**
+ * Test-only Order subclass that materializes the @method magic accessors
+ * (getInternalStatus, getShippingStatus) as real methods, so PHPUnit's
+ * onlyMethods() can stub them without addMethods() routing through
+ * ExtendEntityTrait::__call.
+ *
+ * @internal
+ */
+class ExtendedOrderStub extends Order
+{
+    public function getInternalStatus(): ?EnumOptionInterface
+    {
+        return null;
+    }
+
+    public function getShippingStatus(): ?EnumOptionInterface
+    {
+        return null;
     }
 }

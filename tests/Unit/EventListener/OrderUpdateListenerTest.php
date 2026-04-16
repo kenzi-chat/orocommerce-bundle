@@ -31,7 +31,7 @@ final class OrderUpdateListenerTest extends TestCase
 
     // -- Sends message when watched fields change ─────────────────────
 
-    public function testSendsMessageWhenStatusChanges(): void
+    public function testSendsMessageWhenInternalStatusChangesInSerializedData(): void
     {
         $order = $this->createOrderMock(42);
 
@@ -42,17 +42,75 @@ final class OrderUpdateListenerTest extends TestCase
                 ['order_id' => 42, 'event' => 'order.updated']
             );
 
-        $args = $this->createArgsWithChangeSet($order, ['internalStatus' => ['open', 'shipped']]);
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                ['internal_status' => 'open'],
+                ['internal_status' => 'shipped'],
+            ],
+        ]);
         $this->listener->postUpdate($order, $args);
     }
 
-    public function testSendsMessageWhenTotalChanges(): void
+    public function testSendsMessageWhenShippingStatusChangesInSerializedData(): void
     {
         $order = $this->createOrderMock(42);
 
         $this->messageProducer->expects($this->once())->method('send');
 
-        $args = $this->createArgsWithChangeSet($order, ['total' => [99.99, 109.99]]);
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                ['shippingStatus' => 'not_shipped'],
+                ['shippingStatus' => 'shipped'],
+            ],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenSerializedDataOldSideIsNull(): void
+    {
+        // Doctrine produces this shape on orders created before the
+        // serialized-fields bundle installed — the column is nullable per
+        // Oro migrations. Must not throw on null-side indexing.
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                null,
+                ['shippingStatus' => 'not_shipped'],
+            ],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenTotalValueChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['totalValue' => [99.99, 109.99]]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenSubtotalValueChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['subtotalValue' => [99.99, 109.99]]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenTotalDiscountsAmountChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['totalDiscountsAmount' => [0.0, 5.50]]);
         $this->listener->postUpdate($order, $args);
     }
 
@@ -131,6 +189,36 @@ final class OrderUpdateListenerTest extends TestCase
         $this->listener->postUpdate($order, $args);
     }
 
+    public function testSkipsWhenSerializedDataOnlyHasNonWatchedKeys(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                ['some_other_enum' => 'a'],
+                ['some_other_enum' => 'b'],
+            ],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenSerializedDataHasEqualOldAndNewValues(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                ['internal_status' => 'open', 'shippingStatus' => 'not_shipped'],
+                ['internal_status' => 'open', 'shippingStatus' => 'not_shipped'],
+            ],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
     // -- Mixed changes ────────────────────────────────────────────────
 
     public function testSendsWhenWatchedFieldChangesAlongsideTimestamp(): void
@@ -141,7 +229,7 @@ final class OrderUpdateListenerTest extends TestCase
 
         $args = $this->createArgsWithChangeSet($order, [
             'updatedAt' => ['2026-01-01', '2026-01-02'],
-            'subtotal' => [99.99, 109.99],
+            'subtotalValue' => [99.99, 109.99],
         ]);
         $this->listener->postUpdate($order, $args);
     }

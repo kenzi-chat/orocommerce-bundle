@@ -239,7 +239,15 @@ The dispatcher throws exceptions on failure (both `TransportExceptionInterface` 
 
 `OrderUpdateListener` checks `UnitOfWork::getEntityChangeSet()` before producing a message. A webhook is only triggered when at least one field that appears in the webhook payload changes. This prevents unnecessary dispatches when only internal/audit fields are modified.
 
-**Watched fields** (trigger webhook): `identifier`, `internalStatus`, `email`, `currency`, `subtotal`, `total`, `totalDiscounts`, `shippingMethod`, `shippingMethodType`, `shippingCost`, `estimatedShippingCostAmount`, `overriddenShippingCostAmount`, `poNumber`, `customerNotes`, `shipUntil`, `sourceEntityClass`, `sourceEntityId`, `sourceEntityIdentifier`, `customer`, `customerUser`, `billingAddress`, `shippingAddress`
+Doctrine surfaces changed fields in two places on `Order`, so the listener watches both:
+
+**`DIRECT_FIELDS`** (top-level changeset keys) — scalars, associations, and the underlying columns that back MultiCurrency/Price value objects (changes to the value object itself do not appear in the changeset; the underlying column does):
+
+`identifier`, `email`, `currency`, `shippingMethod`, `shippingMethodType`, `poNumber`, `customerNotes`, `shipUntil`, `sourceEntityClass`, `sourceEntityId`, `sourceEntityIdentifier`, `customer`, `customerUser`, `billingAddress`, `shippingAddress`, `subtotalValue`, `totalValue`, `totalDiscountsAmount`, `estimatedShippingCostAmount`, `overriddenShippingCostAmount`
+
+**`SERIALIZED_ENUM_FIELDS`** (nested inside the `serialized_data` changeset entry, which holds Oro's serialized-fields bundle data) — key naming is inconsistent in Oro (`internal_status` is snake_case, `shippingStatus` is camelCase); use the exact key as serialized:
+
+`internal_status`, `shippingStatus`
 
 **Excluded fields** (never trigger webhook alone): `updatedAt`, `createdAt` — these change as a byproduct of any update. If only timestamps changed, Kenzi would receive identical substantive data. When a real field changes, the current timestamps are included in the payload naturally.
 
