@@ -84,6 +84,35 @@ final class OrderUpdateListenerTest extends TestCase
         $this->listener->postUpdate($order, $args);
     }
 
+    public function testSendsMessageWhenSerializedDataNewSideIsNull(): void
+    {
+        // Symmetric to the null-old-side case: the `??`-guarded comparison
+        // must treat array-vs-null as a real change without throwing.
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [
+                ['shippingStatus' => 'shipped'],
+                null,
+            ],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSkipsWhenSerializedDataBothSidesAreNull(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->never())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, [
+            'serialized_data' => [null, null],
+        ]);
+        $this->listener->postUpdate($order, $args);
+    }
+
     public function testSendsMessageWhenTotalValueChanges(): void
     {
         $order = $this->createOrderMock(42);
@@ -111,6 +140,26 @@ final class OrderUpdateListenerTest extends TestCase
         $this->messageProducer->expects($this->once())->method('send');
 
         $args = $this->createArgsWithChangeSet($order, ['totalDiscountsAmount' => [0.0, 5.50]]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenEstimatedShippingCostAmountChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['estimatedShippingCostAmount' => [0.0, 7.50]]);
+        $this->listener->postUpdate($order, $args);
+    }
+
+    public function testSendsMessageWhenOverriddenShippingCostAmountChanges(): void
+    {
+        $order = $this->createOrderMock(42);
+
+        $this->messageProducer->expects($this->once())->method('send');
+
+        $args = $this->createArgsWithChangeSet($order, ['overriddenShippingCostAmount' => [null, 12.00]]);
         $this->listener->postUpdate($order, $args);
     }
 

@@ -157,13 +157,13 @@ final class OrderPayloadSerializerTest extends TestCase
     public function testResolveStatusReturnsInternalStatusId(): void
     {
         $status = $this->createMock(EnumOptionInterface::class);
-        $status->method('getId')->willReturn('open');
+        $status->method('getId')->willReturn('order_internal_status.open');
 
         $order = $this->createOrderMock(['getInternalStatus' => $status]);
 
         $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
 
-        $this->assertSame('open', $data['status']);
+        $this->assertSame('order_internal_status.open', $data['status']);
     }
 
     public function testResolveStatusReturnsUnknownWhenNull(): void
@@ -178,13 +178,13 @@ final class OrderPayloadSerializerTest extends TestCase
     public function testResolveShippingStatusReturnsShippingStatusId(): void
     {
         $shippingStatus = $this->createMock(EnumOptionInterface::class);
-        $shippingStatus->method('getId')->willReturn('shipped');
+        $shippingStatus->method('getId')->willReturn('order_shipping_status.shipped');
 
         $order = $this->createOrderMock(['getShippingStatus' => $shippingStatus]);
 
         $data = $this->serializer->serialize($order, 'order.created', 1)['data'];
 
-        $this->assertSame('shipped', $data['shipping_status']);
+        $this->assertSame('order_shipping_status.shipped', $data['shipping_status']);
     }
 
     public function testResolveShippingStatusReturnsNullWhenShippingStatusIsNull(): void
