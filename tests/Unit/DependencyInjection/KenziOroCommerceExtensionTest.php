@@ -50,14 +50,15 @@ final class KenziOroCommerceExtensionTest extends TestCase
         $settings = $prependedConfigs[0]['settings'];
 
         $expectedKeys = [
-            'widget_enabled',
-            'sync_enabled',
+            // Lifecycle
+            'shared_secret',
+            'grants',
+            'workspace_id',
+            'oauth_client_id',
+            // Non-lifecycle
             'app_base_url',
             'static_base_url',
-            'shared_secret',
-            'workspace_id',
-            'instance_key',
-            'connected_at',
+            'widget_enabled',
         ];
 
         foreach ($expectedKeys as $key) {

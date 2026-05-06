@@ -12,23 +12,35 @@ use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormView;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 final class KenziConnectButtonTypeTest extends TestCase
 {
-    private ConfigManager&MockObject $configManager;
-    private ApplicationUrlResolver&MockObject $urlResolver;
+    /** @var ConfigManager&MockObject */
+    private MockObject $configManager;
+    /** @var ApplicationUrlResolver&MockObject */
+    private MockObject $urlResolver;
+    /** @var UrlGeneratorInterface&MockObject */
+    private MockObject $router;
     private KenziConnectButtonType $type;
 
     protected function setUp(): void
     {
         $this->configManager = $this->createMock(ConfigManager::class);
         $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
-        $this->type = new KenziConnectButtonType($this->configManager, $this->urlResolver);
+        $this->router = $this->createMock(UrlGeneratorInterface::class);
+
+        $this->type = new KenziConnectButtonType(
+            $this->configManager,
+            $this->urlResolver,
+            $this->router,
+        );
     }
 
     public function testConfigureOptionsSetsUnmapped(): void
     {
-        $resolver = new \Symfony\Component\OptionsResolver\OptionsResolver();
+        $resolver = new OptionsResolver();
         $this->type->configureOptions($resolver);
 
         $resolved = $resolver->resolve([]);
@@ -40,222 +52,132 @@ final class KenziConnectButtonTypeTest extends TestCase
         $this->assertSame('kenzi_connect_button', $this->type->getBlockPrefix());
     }
 
-    public function testBuildViewWhenConnected(): void
+    public function testBuildViewEmitsBootstrapDict(): void
     {
         $this->stubConfig([
-            'oro_ui.application_url' => 'https://b2b.acme-corp.com',
-            Configuration::PARAM_NAME_CONNECTED_AT => '2026-02-24T10:30:00+00:00',
-            Configuration::PARAM_NAME_WORKSPACE_ID => 'ws_abc123',
-            Configuration::PARAM_NAME_INSTANCE_KEY => 'b2b.acme-corp.com',
             Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
-            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => true,
+            Configuration::PARAM_NAME_SHARED_SECRET => 'sec_abc',
         ]);
+        $this->urlResolver->method('instanceKey')->willReturn('store.example.com');
+        $this->stubRoutes();
 
         $view = new FormView();
         $form = $this->createMock(FormInterface::class);
 
         $this->type->buildView($view, $form, []);
 
-        $this->assertTrue($view->vars['is_connected']);
-        $this->assertTrue($view->vars['credentials_delivered']);
-        $this->assertSame('ws_abc123', $view->vars['workspace_id']);
-        $this->assertSame('b2b.acme-corp.com', $view->vars['instance_key']);
-        $this->assertSame('2026-02-24T10:30:00+00:00', $view->vars['connected_at']);
-        $this->assertSame('https://app.kenzi.chat', $view->vars['kenzi_origin']);
-        $this->assertSame('https://b2b.acme-corp.com/admin', $view->vars['admin_url']);
-        $this->assertSame('https://b2b.acme-corp.com/admin/api', $view->vars['api_url']);
-        $this->assertSame('https://b2b.acme-corp.com', $view->vars['base_url']);
+        $this->assertArrayHasKey('kenzi_bootstrap', $view->vars);
+        $bootstrap = $view->vars['kenzi_bootstrap'];
+
+        $this->assertSame('https://app.kenzi.chat', $bootstrap['kenzi_app_origin']);
+        $this->assertSame('store.example.com', $bootstrap['instance_key']);
+        $this->assertSame(['commerce'], $bootstrap['supported_grants']);
+        $this->assertTrue($bootstrap['secret_exists']);
+
+        $this->assertSame([
+            'connect' => '/admin/kenzi/connect',
+            'configure' => '/admin/kenzi/configure',
+            'integration' => '/admin/kenzi/integration',
+            'disconnect' => '/admin/kenzi/disconnect',
+        ], $bootstrap['endpoints']);
     }
 
-    public function testBuildViewReportsPartialWhenCredentialsNotDelivered(): void
+    public function testBuildViewSecretExistsFalseWhenSecretEmpty(): void
     {
         $this->stubConfig([
-            'oro_ui.application_url' => 'https://b2b.acme-corp.com',
-            Configuration::PARAM_NAME_CONNECTED_AT => '2026-02-24T10:30:00+00:00',
-            Configuration::PARAM_NAME_WORKSPACE_ID => 'ws_abc123',
-            Configuration::PARAM_NAME_INSTANCE_KEY => 'b2b.acme-corp.com',
             Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
-            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED => false,
+            Configuration::PARAM_NAME_SHARED_SECRET => '',
         ]);
+        $this->urlResolver->method('instanceKey')->willReturn('store.example.com');
+        $this->stubRoutes();
 
         $view = new FormView();
         $form = $this->createMock(FormInterface::class);
 
         $this->type->buildView($view, $form, []);
 
-        $this->assertTrue($view->vars['is_connected']);
-        $this->assertFalse($view->vars['credentials_delivered']);
+        $this->assertFalse($view->vars['kenzi_bootstrap']['secret_exists']);
     }
 
-    public function testBuildViewWhenDisconnectedDerivesInstanceKeyFromAppUrl(): void
+    public function testBuildViewDoesNotReadDroppedKeys(): void
     {
+        // The dropped keys (connected_at, credentials_delivered, instance_key,
+        // sync_enabled, oauth_client_id) no longer exist in Configuration. If
+        // buildView() tries to read them, the test setup wouldn't catch it
+        // directly — instead we assert the new bootstrap dict is the ONLY
+        // surface, which by structure can't include the dropped keys.
         $this->stubConfig([
-            'oro_ui.application_url' => 'https://b2b.acme-corp.com',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => '',
-            Configuration::PARAM_NAME_APP_BASE_URL => 'https://staging.kenzi.chat',
-        ]);
-
-        $view = new FormView();
-        $form = $this->createMock(FormInterface::class);
-
-        $this->type->buildView($view, $form, []);
-
-        $this->assertFalse($view->vars['is_connected']);
-        $this->assertSame('', $view->vars['workspace_id']);
-        $this->assertSame('b2b.acme-corp.com', $view->vars['instance_key']);
-        $this->assertSame('', $view->vars['connected_at']);
-        $this->assertSame('https://staging.kenzi.chat', $view->vars['kenzi_origin']);
-        $this->assertSame('https://b2b.acme-corp.com/admin', $view->vars['admin_url']);
-        $this->assertSame('https://b2b.acme-corp.com/admin/api', $view->vars['api_url']);
-        $this->assertSame('https://b2b.acme-corp.com', $view->vars['base_url']);
-    }
-
-    public function testBuildViewUsesStoredInstanceKeyWhenAvailable(): void
-    {
-        $this->stubConfig([
-            'oro_ui.application_url' => 'https://example.com',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => 'already-set.example.com',
             Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
+            Configuration::PARAM_NAME_SHARED_SECRET => '',
         ]);
+        $this->urlResolver->method('instanceKey')->willReturn('store.example.com');
+        $this->stubRoutes();
 
         $view = new FormView();
         $form = $this->createMock(FormInterface::class);
 
         $this->type->buildView($view, $form, []);
 
-        // Should use stored value, NOT derive from app URL
-        $this->assertSame('already-set.example.com', $view->vars['instance_key']);
+        $bootstrapKeys = array_keys($view->vars['kenzi_bootstrap']);
+        sort($bootstrapKeys);
+        $this->assertSame([
+            'endpoints',
+            'instance_key',
+            'kenzi_app_origin',
+            'secret_exists',
+            'supported_grants',
+        ], $bootstrapKeys);
+
+        // Specifically: no `is_connected`, `credentials_delivered`,
+        // `connected_at` keys at the top level either.
+        $this->assertArrayNotHasKey('is_connected', $view->vars);
+        $this->assertArrayNotHasKey('credentials_delivered', $view->vars);
+        $this->assertArrayNotHasKey('connected_at', $view->vars);
     }
 
-    public function testBuildViewReadsAppBaseUrlDirectlyAsOrigin(): void
+    public function testBuildViewPassesAppBaseUrlAsKenziOriginVerbatim(): void
     {
+        // Trust-the-contract: app_base_url is documented as already being a
+        // clean origin. The form type passes it through without normalization.
         $this->stubConfig([
-            'oro_ui.application_url' => 'http://localhost:8000',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => '',
             Configuration::PARAM_NAME_APP_BASE_URL => 'http://localhost:4000',
+            Configuration::PARAM_NAME_SHARED_SECRET => '',
         ]);
+        $this->urlResolver->method('instanceKey')->willReturn('localhost');
+        $this->stubRoutes();
 
         $view = new FormView();
         $form = $this->createMock(FormInterface::class);
 
         $this->type->buildView($view, $form, []);
 
-        $this->assertSame('http://localhost:4000', $view->vars['kenzi_origin']);
-        $this->assertSame('http://localhost:8000/admin/api', $view->vars['api_url']);
-        $this->assertSame('http://localhost:8000', $view->vars['base_url']);
-    }
-
-    public function testBuildViewApiUrlIncludesNonStandardPort(): void
-    {
-        $this->stubConfig([
-            'oro_ui.application_url' => 'https://oro.example.com:8443',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => '',
-            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
-        ]);
-
-        $view = new FormView();
-        $form = $this->createMock(FormInterface::class);
-
-        $this->type->buildView($view, $form, []);
-
-        $this->assertSame('oro.example.com', $view->vars['instance_key']);
-        $this->assertSame('https://oro.example.com:8443/admin/api', $view->vars['api_url']);
-        $this->assertSame('https://oro.example.com:8443/admin', $view->vars['admin_url']);
-        $this->assertSame('https://oro.example.com:8443', $view->vars['base_url']);
-    }
-
-    public function testBuildViewHandlesEmptyAppBaseUrl(): void
-    {
-        $this->stubConfig([
-            'oro_ui.application_url' => 'https://store.test',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => '',
-            Configuration::PARAM_NAME_APP_BASE_URL => '',
-        ]);
-
-        $view = new FormView();
-        $form = $this->createMock(FormInterface::class);
-
-        $this->type->buildView($view, $form, []);
-
-        $this->assertSame('', $view->vars['kenzi_origin']);
-    }
-
-    public function testBuildViewAdminUrlIsAppUrlPlusAdminPath(): void
-    {
-        $this->stubConfig([
-            'oro_ui.application_url' => 'https://store.test',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => 'store.test',
-            Configuration::PARAM_NAME_APP_BASE_URL => 'https://app.kenzi.chat',
-        ]);
-
-        $view = new FormView();
-        $form = $this->createMock(FormInterface::class);
-
-        $this->type->buildView($view, $form, []);
-
-        $this->assertSame('https://store.test/admin', $view->vars['admin_url']);
-    }
-
-    public function testBuildViewLocalDevWithPort(): void
-    {
-        $this->stubConfig([
-            'oro_ui.application_url' => 'http://localhost:8000',
-            Configuration::PARAM_NAME_CONNECTED_AT => '',
-            Configuration::PARAM_NAME_WORKSPACE_ID => '',
-            Configuration::PARAM_NAME_INSTANCE_KEY => '',
-            Configuration::PARAM_NAME_APP_BASE_URL => 'http://localhost:4000',
-        ]);
-
-        $view = new FormView();
-        $form = $this->createMock(FormInterface::class);
-
-        $this->type->buildView($view, $form, []);
-
-        $this->assertSame('localhost', $view->vars['instance_key']);
-        $this->assertSame('http://localhost:8000/admin', $view->vars['admin_url']);
-        $this->assertSame('http://localhost:8000/admin/api', $view->vars['api_url']);
-        $this->assertSame('http://localhost:8000', $view->vars['base_url']);
+        $this->assertSame('http://localhost:4000', $view->vars['kenzi_bootstrap']['kenzi_app_origin']);
     }
 
     /**
-     * @param array<string, mixed> $values  Config keys (Kenzi params without ROOT_NODE prefix, or full keys like 'oro_ui.application_url')
+     * @param array<string, mixed> $values
      */
     private function stubConfig(array $values): void
     {
-        $appUrl = (string) ($values['oro_ui.application_url'] ?? '');
-        $parts = parse_url($appUrl);
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'] ?? '';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-        $baseOrigin = $host === '' ? '' : $scheme . '://' . $host . $port;
-        $adminUrl = $baseOrigin === '' ? '/admin' : $baseOrigin . '/admin';
-
-        $this->urlResolver->method('instanceKey')->willReturn($host);
-        $this->urlResolver->method('adminUrl')->willReturn($adminUrl);
-        $this->urlResolver->method('apiUrl')->willReturn($adminUrl . '/api');
-        $this->urlResolver->method('baseOrigin')->willReturn($baseOrigin);
-
         $this->configManager->method('get')
             ->willReturnCallback(function (string $key) use ($values): mixed {
-                if (isset($values[$key])) {
-                    return $values[$key];
-                }
-
                 $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
-
                 return $values[$paramName] ?? null;
             });
     }
+
+    private function stubRoutes(): void
+    {
+        $this->router->method('generate')
+            ->willReturnCallback(function (string $name): string {
+                return match ($name) {
+                    'kenzi_connect' => '/admin/kenzi/connect',
+                    'kenzi_configure' => '/admin/kenzi/configure',
+                    'kenzi_integration' => '/admin/kenzi/integration',
+                    'kenzi_disconnect' => '/admin/kenzi/disconnect',
+                    default => throw new \LogicException("Unexpected route: {$name}"),
+                };
+            });
+    }
+
 }

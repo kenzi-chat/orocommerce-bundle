@@ -2,15 +2,13 @@ kenzi_oro_commerce:
     connect:
         button:
             disconnect: 'Disconnect'
-        status:
-            partially_connected_warning: 'Connection stored, but backfill credentials could not be delivered. Click Retry delivery below to complete the handshake.'
         error:
             no_kenzi_origin: 'Kenzi is not configured. Run oro:platform:update or contact your system administrator.'
             popup_blocked: 'Please allow popups for this site to connect to Kenzi.'
             store_failed: 'Failed to store Kenzi connection. Please try again.'
+            configure_failed: 'Failed to configure the Kenzi connection. Please try again.'
             disconnect_failed: 'Failed to disconnect. Please try again.'
-            retry_delivery_failed: 'Retry failed. Please check the Kenzi endpoint and try again.'
         confirm:
-            disconnect: 'Disconnect from Kenzi? This will stop sending order webhooks for this website.'
+            disconnect: 'Disconnect from Kenzi? This will stop sending order webhooks.'
             disconnect_title: 'Disconnect from Kenzi'
             cancel: 'Cancel'

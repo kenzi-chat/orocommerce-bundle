@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Webhook;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
 use Psr\Log\LoggerInterface;
@@ -14,15 +15,18 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 /**
  * Signs and dispatches webhook payloads to the Kenzi endpoint.
  *
- * All configuration (sync_enabled, shared_secret, instance_key) is read
- * from global scope. Computes HMAC-SHA256 over the raw JSON body and sets
- * all required Kenzi headers.
+ * Reads `shared_secret` and `grants` from global scope to gate dispatch.
+ * The `x-kenzi-integration` header is computed live from the application
+ * URL via {@see ApplicationUrlResolver} — there is no cached `instance_key`
+ * config key. Computes HMAC-SHA256 over the raw JSON body and sets all
+ * required Kenzi headers.
  */
 class WebhookDispatcher
 {
     public function __construct(
         private readonly HttpClientInterface $httpClient,
         private readonly ConfigManager $configManager,
+        private readonly ApplicationUrlResolver $urlResolver,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -30,23 +34,24 @@ class WebhookDispatcher
     /**
      * Whether webhook sync is enabled and fully configured.
      *
-     * Checks that sync_enabled is true AND all required config
-     * (app_base_url, shared_secret, instance_key) are present. Listeners
-     * use this to bail out early before serializing payloads.
+     * Webhooks dispatch when (1) the integration is connected (shared_secret
+     * is set) and (2) the commerce grant is present. Listeners use this to
+     * bail out early before serializing payloads.
      */
     public function isEnabled(): bool
     {
-        if (!$this->getConfig(Configuration::PARAM_NAME_SYNC_ENABLED)) {
+        $secret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
+        $grants = $this->getConfig(Configuration::PARAM_NAME_GRANTS);
+
+        if (!\is_string($secret) || $secret === '') {
             return false;
         }
 
-        $appBaseUrl = $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
-        $webhookSecret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
-        $instanceKey = $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
+        if (!\is_array($grants)) {
+            return false;
+        }
 
-        return \is_string($appBaseUrl) && $appBaseUrl !== ''
-            && \is_string($webhookSecret) && $webhookSecret !== ''
-            && \is_string($instanceKey) && $instanceKey !== '';
+        return \in_array('commerce', $grants, true);
     }
 
     /**
@@ -72,7 +77,7 @@ class WebhookDispatcher
         $appBaseUrl = (string) $this->getConfig(Configuration::PARAM_NAME_APP_BASE_URL);
         $webhookUrl = $appBaseUrl . '/webhooks/oro-commerce';
         $webhookSecret = (string) $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
-        $instanceKey = (string) $this->getConfig(Configuration::PARAM_NAME_INSTANCE_KEY);
+        $instanceKey = $this->urlResolver->instanceKey();
 
         $rawBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 

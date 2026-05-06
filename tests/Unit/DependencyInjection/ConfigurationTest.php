@@ -24,44 +24,69 @@ final class ConfigurationTest extends TestCase
         $this->assertSame(Configuration::ROOT_NODE, $treeBuilder->buildTree()->getName());
     }
 
-    public function testProcessedConfigContainsAllSettingsKeys(): void
+    public function testProcessedConfigContainsExactlySevenKeys(): void
     {
         $config = $this->processConfig([]);
 
         $expectedKeys = [
-            Configuration::PARAM_NAME_WIDGET_ENABLED,
-            Configuration::PARAM_NAME_SYNC_ENABLED,
+            // Lifecycle
+            Configuration::PARAM_NAME_SHARED_SECRET,
+            Configuration::PARAM_NAME_GRANTS,
+            Configuration::PARAM_NAME_WORKSPACE_ID,
+            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
+            // Non-lifecycle
             Configuration::PARAM_NAME_APP_BASE_URL,
             Configuration::PARAM_NAME_STATIC_BASE_URL,
-            Configuration::PARAM_NAME_SHARED_SECRET,
-            Configuration::PARAM_NAME_WORKSPACE_ID,
-            Configuration::PARAM_NAME_INSTANCE_KEY,
-            Configuration::PARAM_NAME_CONNECTED_AT,
-            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
-            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED,
+            Configuration::PARAM_NAME_WIDGET_ENABLED,
         ];
 
         $settings = $config['settings'];
+        unset($settings['resolved']);
 
-        foreach ($expectedKeys as $key) {
-            $this->assertArrayHasKey($key, $settings, "Missing settings key: {$key}");
-        }
+        $this->assertEqualsCanonicalizing(
+            $expectedKeys,
+            array_keys($settings),
+            'Settings must contain exactly the four lifecycle + three non-lifecycle keys'
+        );
+    }
+
+    /**
+     * @dataProvider droppedKeyProvider
+     */
+    public function testDroppedKeysAreAbsent(string $droppedKey): void
+    {
+        $config = $this->processConfig([]);
+        $settings = $config['settings'];
+
+        $this->assertArrayNotHasKey(
+            $droppedKey,
+            $settings,
+            "Dropped key {$droppedKey} must not appear in settings"
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function droppedKeyProvider(): iterable
+    {
+        yield 'sync_enabled' => ['sync_enabled'];
+        yield 'instance_key' => ['instance_key'];
+        yield 'connected_at' => ['connected_at'];
+        yield 'credentials_delivered' => ['credentials_delivered'];
     }
 
     public function testDefaultValues(): void
     {
         $settings = $this->processConfig([])['settings'];
 
-        $this->assertSame(false, $settings[Configuration::PARAM_NAME_WIDGET_ENABLED]['value']);
-        $this->assertSame(false, $settings[Configuration::PARAM_NAME_SYNC_ENABLED]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_SHARED_SECRET]['value']);
+        $this->assertSame([], $settings[Configuration::PARAM_NAME_GRANTS]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_WORKSPACE_ID]['value']);
+        $this->assertSame('', $settings[Configuration::PARAM_NAME_OAUTH_CLIENT_ID]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_APP_BASE_URL]['value']);
         $this->assertSame('', $settings[Configuration::PARAM_NAME_STATIC_BASE_URL]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_SHARED_SECRET]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_WORKSPACE_ID]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_INSTANCE_KEY]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_CONNECTED_AT]['value']);
-        $this->assertSame('', $settings[Configuration::PARAM_NAME_OAUTH_CLIENT_ID]['value']);
-        $this->assertSame(false, $settings[Configuration::PARAM_NAME_CREDENTIALS_DELIVERED]['value']);
+        $this->assertSame(false, $settings[Configuration::PARAM_NAME_WIDGET_ENABLED]['value']);
     }
 
     /**
@@ -77,13 +102,21 @@ final class ConfigurationTest extends TestCase
      */
     public static function configKeyProvider(): iterable
     {
-        yield 'widget_enabled' => [
-            Configuration::PARAM_NAME_WIDGET_ENABLED,
-            'kenzi_oro_commerce.widget_enabled',
+        yield 'shared_secret' => [
+            Configuration::PARAM_NAME_SHARED_SECRET,
+            'kenzi_oro_commerce.shared_secret',
         ];
-        yield 'sync_enabled' => [
-            Configuration::PARAM_NAME_SYNC_ENABLED,
-            'kenzi_oro_commerce.sync_enabled',
+        yield 'grants' => [
+            Configuration::PARAM_NAME_GRANTS,
+            'kenzi_oro_commerce.grants',
+        ];
+        yield 'workspace_id' => [
+            Configuration::PARAM_NAME_WORKSPACE_ID,
+            'kenzi_oro_commerce.workspace_id',
+        ];
+        yield 'oauth_client_id' => [
+            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
+            'kenzi_oro_commerce.oauth_client_id',
         ];
         yield 'app_base_url' => [
             Configuration::PARAM_NAME_APP_BASE_URL,
@@ -93,29 +126,9 @@ final class ConfigurationTest extends TestCase
             Configuration::PARAM_NAME_STATIC_BASE_URL,
             'kenzi_oro_commerce.static_base_url',
         ];
-        yield 'shared_secret' => [
-            Configuration::PARAM_NAME_SHARED_SECRET,
-            'kenzi_oro_commerce.shared_secret',
-        ];
-        yield 'workspace_id' => [
-            Configuration::PARAM_NAME_WORKSPACE_ID,
-            'kenzi_oro_commerce.workspace_id',
-        ];
-        yield 'instance_key' => [
-            Configuration::PARAM_NAME_INSTANCE_KEY,
-            'kenzi_oro_commerce.instance_key',
-        ];
-        yield 'connected_at' => [
-            Configuration::PARAM_NAME_CONNECTED_AT,
-            'kenzi_oro_commerce.connected_at',
-        ];
-        yield 'oauth_client_id' => [
-            Configuration::PARAM_NAME_OAUTH_CLIENT_ID,
-            'kenzi_oro_commerce.oauth_client_id',
-        ];
-        yield 'credentials_delivered' => [
-            Configuration::PARAM_NAME_CREDENTIALS_DELIVERED,
-            'kenzi_oro_commerce.credentials_delivered',
+        yield 'widget_enabled' => [
+            Configuration::PARAM_NAME_WIDGET_ENABLED,
+            'kenzi_oro_commerce.widget_enabled',
         ];
     }
 

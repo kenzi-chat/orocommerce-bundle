@@ -40,12 +40,21 @@ class ApplicationUrlResolver
     }
 
     /**
-     * Application hostname (e.g. `oro.acme.com`) — used as the Kenzi
-     * `instance_key` and `x-kenzi-integration` header value.
+     * Stable identifier for this Oro instance — used as the Kenzi popup
+     * `?key=` param and `x-kenzi-integration` webhook header.
+     *
+     * Lowercased host plus the URL path (with any trailing slash stripped),
+     * so casing and trailing-slash variants of the same application URL
+     * all produce the same key. The port is intentionally omitted so the
+     * key survives a port change without re-handshaking.
      */
     public function instanceKey(): string
     {
-        return (string) (parse_url($this->applicationUrl(), PHP_URL_HOST) ?: '');
+        $parts = parse_url($this->applicationUrl());
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $path = rtrim((string) ($parts['path'] ?? ''), '/');
+
+        return $host . $path;
     }
 
     /**

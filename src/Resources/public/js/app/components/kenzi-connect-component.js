@@ -8,266 +8,179 @@ define(function(require) {
     const __ = require('orotranslation/js/translator');
 
     /**
-     * Kenzi Connect — Page component for the connect/disconnect button on the
+     * Kenzi Connect — page component for the connect lifecycle UI on the
      * system configuration page.
      *
-     * Auto-initialized by Oro's PageController from the
-     * data-page-component-module attribute set in the form widget template.
+     * Two questions drive what the user sees:
+     *   1. "Does the bundle have a shared secret?" Read from
+     *      `this.bootstrap.secret_exists` — no HTTP call needed.
+     *   2. "What does Kenzi say about the integration?" Answered by
+     *      GET /integration, projected through `connectionState()`.
      *
-     * Opens the Kenzi connect popup, validates the postMessage handshake nonce,
-     * and stores credentials via the bundle's ConnectController.
+     * Three views map from those answers:
+     *   - 'disconnected' — no working integration. Either no secret stored,
+     *                      or Kenzi did not return a 200 (bundle 4XX/5XX,
+     *                      Kenzi unreachable, network error, etc.). Show
+     *                      the Connect button so the user can start fresh.
+     *   - 'connected'    — Kenzi confirms `configured && claimed`. Show
+     *                      the green status panel and the Disconnect button.
+     *   - 'incomplete'   — Kenzi returned 200 but the integration is not
+     *                      yet `configured && claimed`. Show the yellow
+     *                      warning panel and the Disconnect button.
+     *
+     * The integration object is the state. The JS doesn't track its own
+     * state — every render flows from the latest projection.
      */
     const KenziConnectComponent = BaseComponent.extend({
-        /**
-         * @property {Object}
-         */
-        options: {
-            storeUrl: '',
-            disconnectUrl: '',
-            retryDeliveryUrl: '',
-            kenziOrigin: '',
-            instanceKey: '',
-            adminUrl: '',
-            apiUrl: '',
-            baseUrl: ''
-        },
-
-        /**
-         * sessionStorage key used to surface a one-shot warning flash on the
-         * page that follows a partial-connect reload. Set by _storeCredentials
-         * before reload, read (and cleared) by initialize on the next load.
-         */
-        PARTIAL_FLASH_KEY: 'kenziConnectPartialFlash',
-
-        /**
-         * @property {Function|null} Bound message handler for cleanup
-         */
+        bootstrap: null,
         _messageHandler: null,
+        _popup: null,
 
-        /**
-         * @property {number|null} Poll timer for popup close detection
-         */
-        _pollTimer: null,
-
-        /**
-         * @inheritdoc
-         */
         constructor: function KenziConnectComponent(options) {
             KenziConnectComponent.__super__.constructor.call(this, options);
         },
 
-        /**
-         * @inheritdoc
-         */
         initialize: function(options) {
-            this.options = $.extend(true, {}, this.options, options);
             this.$el = options._sourceElement;
 
-            this.$el.on('click', '[data-action="connect"]', this.onConnect.bind(this));
-            this.$el.on('click', '[data-action="disconnect"]', this.onDisconnect.bind(this));
-            this.$el.on('click', '[data-action="retry-delivery"]', this.onRetryDelivery.bind(this));
+            try {
+                this.bootstrap = JSON.parse(this.$el.attr('data-kenzi-bootstrap') || '{}');
+            } catch (err) {
+                this.bootstrap = {};
+                console.error('Kenzi Connect: invalid bootstrap', err);
+            }
 
-            this._surfacePartialFlash();
+            this.$el.on('click', '[data-action="connect"]', (e) => this.onConnect(e));
+            this.$el.on('click', '[data-action="disconnect"]', () => this.onDisconnect());
+
+            this._renderInitial();
 
             KenziConnectComponent.__super__.initialize.call(this, options);
         },
 
         /**
-         * Show a warning flash if the previous request reloaded the page in
-         * a partially-connected state. The flag is cleared after reading so
-         * it only appears once.
-         *
-         * @private
+         * Loading flow: short-circuit to disconnected when no secret is
+         * stored locally. Otherwise GET /integration and project.
          */
-        _surfacePartialFlash: function() {
+        _renderInitial: async function() {
+            if (!this.bootstrap.secret_exists) {
+                this._render('disconnected', null);
+                return;
+            }
+
             try {
-                if (window.sessionStorage.getItem(this.PARTIAL_FLASH_KEY)) {
-                    window.sessionStorage.removeItem(this.PARTIAL_FLASH_KEY);
-                    mediator.execute(
-                        'showFlashMessage', 'warning',
-                        __('kenzi_oro_commerce.connect.status.partially_connected_warning')
-                    );
-                }
+                const result = await this._fetch('GET', this.bootstrap.endpoints.integration);
+                this._render(connectionState(result.status, result.body), result.body);
             } catch (err) {
-                // sessionStorage disabled — silently skip the flash.
+                console.error('Kenzi Connect: integration GET failed', err);
+                this._render('disconnected', null);
             }
         },
 
         /**
-         * Handle "Connect to Kenzi" button click.
-         * Opens the connect popup and sets up postMessage listener.
+         * Open the Kenzi popup and wire up the postMessage handler.
+         *
+         * window.open() runs synchronously inside the click handler so the
+         * browser counts it as a user gesture and doesn't block the popup.
          */
         onConnect: function(e) {
             const $button = $(e.currentTarget);
-            const kenziOrigin = this.options.kenziOrigin;
-            const instanceKey = this.options.instanceKey;
-            const self = this;
+            $button.prop('disabled', true);
 
-            if (!kenziOrigin) {
-                mediator.execute(
-                    'showFlashMessage', 'error',
-                    __('kenzi_oro_commerce.connect.error.no_kenzi_origin')
-                );
+            const origin = this.bootstrap.kenzi_app_origin;
+
+            if (!origin) {
+                $button.prop('disabled', false);
+                this._flashError(__('kenzi_oro_commerce.connect.error.no_kenzi_origin'));
                 return;
             }
 
-            const nonce = crypto.randomUUID();
-
             const params = new URLSearchParams({
-                platform: 'oro_commerce',
-                instance_key: instanceKey || '',
-                nonce: nonce,
-                origin: window.location.origin,
-                requested_capabilities: 'commerce'
+                type: 'oro_commerce',
+                key: this.bootstrap.instance_key || '',
+                supported_grants: (this.bootstrap.supported_grants || []).join(',')
             });
 
-            if (this.options.apiUrl) {
-                params.set('api_url', this.options.apiUrl);
-            }
-
-            if (this.options.adminUrl) {
-                params.set('admin_url', this.options.adminUrl);
-            }
-
-            if (this.options.baseUrl) {
-                params.set('base_url', this.options.baseUrl);
-            }
-
-            const popup = window.open(
-                kenziOrigin + '/connect?' + params.toString(),
+            this._popup = window.open(
+                origin + '/connect?' + params.toString(),
                 'kenzi_connect',
                 'width=500,height=700,scrollbars=yes,resizable=yes'
             );
 
-            if (!popup || popup.closed) {
-                mediator.execute(
-                    'showFlashMessage', 'error',
-                    __('kenzi_oro_commerce.connect.error.popup_blocked')
-                );
+            if (!this._popup || this._popup.closed) {
+                $button.prop('disabled', false);
+                this._flashError(__('kenzi_oro_commerce.connect.error.popup_blocked'));
                 return;
             }
 
-            $button.prop('disabled', true);
-
-            const handleMessage = function(event) {
-                if (event.origin !== kenziOrigin) {
-                    return;
-                }
-
-                const data = event.data;
-
-                if (!data || data.type !== 'kenzi_connected') {
-                    return;
-                }
-
-                if (data.nonce !== nonce) {
-                    console.error('Kenzi Connect: nonce mismatch');
-                    self._cleanup();
-                    $button.prop('disabled', false);
-                    return;
-                }
-
-                // Acknowledge so the popup can close itself
-                popup.postMessage({type: 'kenzi:ack'}, kenziOrigin);
-                self._cleanup();
-
-                self._storeCredentials({
-                    workspace_id: data.workspace_id,
-                    shared_secret: data.shared_secret
-                }, $button);
-            };
-
-            this._messageHandler = handleMessage;
-            window.addEventListener('message', handleMessage);
-
-            // Detect popup closed without completing the handshake
-            this._pollTimer = setInterval(function() {
-                if (popup.closed) {
-                    self._cleanup();
-                    $button.prop('disabled', false);
-                }
-            }, 1000);
+            this._messageHandler = (e) => this._handleMessage(e);
+            window.addEventListener('message', this._messageHandler);
         },
 
         /**
-         * POST credentials to ConnectController.
-         *
-         * @param {Object} credentials
-         * @param {jQuery} $button
-         * @private
+         * Validate the postMessage event and run the connect chain:
+         * /connect → /configure → adapter → render.
          */
-        _storeCredentials: function(credentials, $button) {
-            const self = this;
+        _handleMessage: async function(event) {
+            if (event.origin !== this.bootstrap.kenzi_app_origin) {
+                return;
+            }
+            if (event.source !== this._popup) {
+                return;
+            }
 
-            $.ajax({
-                url: this.options.storeUrl,
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(credentials)
-            }).done(function(response) {
-                if (response && response.status === 'partially_connected') {
-                    self._markPartialFlash();
-                }
-                window.location.reload();
-            }).fail(function() {
-                $button.prop('disabled', false);
-                mediator.execute(
-                    'showFlashMessage', 'error',
-                    __('kenzi_oro_commerce.connect.error.store_failed')
-                );
-            });
-        },
+            const payload = event.data;
 
-        /**
-         * Persist a flag so the next page load shows a partial-connect warning
-         * flash. Silently no-ops when sessionStorage is unavailable — the
-         * inline Twig banner still communicates the state.
-         *
-         * @private
-         */
-        _markPartialFlash: function() {
+            if (!payload || typeof payload !== 'object') {
+                return;
+            }
+            if (typeof payload.shared_secret !== 'string'
+                || typeof payload.workspace_id !== 'string'
+                || !Array.isArray(payload.grants)) {
+                return;
+            }
+
+            this._cleanupPopup();
+
             try {
-                window.sessionStorage.setItem(this.PARTIAL_FLASH_KEY, '1');
+                const connectResult = await this._fetch('POST', this.bootstrap.endpoints.connect, {
+                    shared_secret: payload.shared_secret,
+                    workspace_id: payload.workspace_id,
+                    grants: payload.grants
+                });
+
+                if (connectResult.status !== 200) {
+                    this._reportError(connectResult, 'kenzi_oro_commerce.connect.error.store_failed');
+                    this._render('incomplete', null);
+                    return;
+                }
+
+                // /connect succeeded — proceed to /configure.
+                const configureResult = await this._fetch('POST', this.bootstrap.endpoints.configure);
+
+                if (configureResult.status !== 200) {
+                    this._reportError(configureResult, 'kenzi_oro_commerce.connect.error.configure_failed');
+                    this._render('incomplete', null);
+                    return;
+                }
+
+                // /configure succeeded — reload to re-render the projection
+                // and refresh derived UI (widget_enabled checkbox, bootstrap dict).
+                window.location.reload();
             } catch (err) {
-                // sessionStorage disabled — fall back to the Twig banner.
+                console.error('Kenzi Connect: connect chain failed', err);
+                this._flashError(__('kenzi_oro_commerce.connect.error.store_failed'));
+                this._render('incomplete', null);
             }
         },
 
         /**
-         * Handle "Retry delivery" button click on the partially-connected
-         * banner. POSTs to the retry endpoint, which re-runs credential
-         * delivery using the already-stored shared secret.
+         * Confirm with a modal, then POST /disconnect. On success, reload
+         * the page so all derived state (widget_enabled, bootstrap flags,
+         * other config-driven UI) refreshes from the now-cleared config.
+         * On failure, flash and leave the view alone.
          */
-        onRetryDelivery: function(e) {
-            const $button = $(e.currentTarget);
-            const self = this;
-
-            $button.prop('disabled', true);
-
-            $.ajax({
-                url: this.options.retryDeliveryUrl,
-                method: 'POST'
-            }).done(function(response) {
-                if (response && response.status === 'partially_connected') {
-                    self._markPartialFlash();
-                }
-                window.location.reload();
-            }).fail(function() {
-                $button.prop('disabled', false);
-                mediator.execute(
-                    'showFlashMessage', 'error',
-                    __('kenzi_oro_commerce.connect.error.retry_delivery_failed')
-                );
-            });
-        },
-
-        /**
-         * Handle "Disconnect" button click.
-         */
-        onDisconnect: function(e) {
-            const $button = $(e.currentTarget);
-            const self = this;
-
+        onDisconnect: function() {
             const modal = new Modal({
                 title: __('kenzi_oro_commerce.connect.confirm.disconnect_title'),
                 content: __('kenzi_oro_commerce.connect.confirm.disconnect'),
@@ -275,56 +188,157 @@ define(function(require) {
                 cancelText: __('kenzi_oro_commerce.connect.confirm.cancel')
             });
 
-            modal.on('ok', function() {
-                $button.prop('disabled', true);
-
-                $.ajax({
-                    url: self.options.disconnectUrl,
-                    method: 'POST'
-                }).done(function() {
+            modal.on('ok', async () => {
+                try {
+                    const result = await this._fetch('POST', this.bootstrap.endpoints.disconnect);
+                    if (result.status !== 200) {
+                        this._reportError(result, 'kenzi_oro_commerce.connect.error.disconnect_failed');
+                        return;
+                    }
                     window.location.reload();
-                }).fail(function() {
-                    $button.prop('disabled', false);
-                    mediator.execute(
-                        'showFlashMessage', 'error',
-                        __('kenzi_oro_commerce.connect.error.disconnect_failed')
-                    );
-                });
+                } catch (err) {
+                    console.error('Kenzi Connect: disconnect failed', err);
+                    this._flashError(__('kenzi_oro_commerce.connect.error.disconnect_failed'));
+                }
             });
 
             modal.open();
         },
 
         /**
-         * Remove the postMessage listener and popup poll timer.
-         *
-         * @private
+         * Show one slot, populate placeholders, hide the rest.
          */
-        _cleanup: function() {
-            if (this._pollTimer) {
-                clearInterval(this._pollTimer);
-                this._pollTimer = null;
+        _render: function(view, integration) {
+            this.$el.find('[data-state]').prop('hidden', true);
+
+            const $slot = this.$el.find('[data-state="' + view + '"]');
+            if ($slot.length === 0) {
+                return;
             }
-            if (this._messageHandler) {
-                window.removeEventListener('message', this._messageHandler);
-                this._messageHandler = null;
+            $slot[0].hidden = false;
+
+            // Always enable the connect button when entering the disconnected view.
+            if (view === 'disconnected') {
+                $slot.find('[data-action="connect"]').prop('disabled', false);
+            }
+
+            if (view === 'connected' && integration) {
+                $slot.find('[data-field]').each(function() {
+                    const path = this.getAttribute('data-field');
+                    this.textContent = formatFieldValue(getPath(integration, path));
+                });
             }
         },
 
         /**
-         * @inheritdoc
+         * POST/GET to the given URL with an optional JSON body. Returns a
+         * Promise that resolves with `{ status, body }` regardless of HTTP
+         * status — `body` is the parsed JSON response, or `null` if the
+         * response wasn't JSON-decodable.
          */
+        _fetch: function(method, url, body) {
+            const options = {
+                url: url,
+                method: method,
+                dataType: 'json'
+            };
+
+            if (body !== undefined) {
+                options.contentType = 'application/json';
+                options.data = JSON.stringify(body);
+            }
+
+            return new Promise(function(resolve) {
+                $.ajax(options).done(function(data, _textStatus, jqXHR) {
+                    resolve({ status: jqXHR.status, body: data });
+                }).fail(function(jqXHR) {
+                    let parsed = null;
+                    try {
+                        parsed = jqXHR.responseJSON || JSON.parse(jqXHR.responseText || '');
+                    } catch (err) {
+                        parsed = null;
+                    }
+                    resolve({ status: jqXHR.status, body: parsed });
+                });
+            });
+        },
+
+        _reportError: function(result, messageKey) {
+            const serverError = result && result.body && typeof result.body.error === 'string'
+                ? result.body.error
+                : null;
+
+            if (serverError) {
+                console.error('Kenzi Connect [' + messageKey + ']', serverError);
+            }
+
+            this._flashError(serverError || __(messageKey));
+        },
+
+        _flashError: function(message) {
+            mediator.execute('showFlashMessage', 'error', message);
+        },
+
+        _cleanupPopup: function() {
+            if (this._messageHandler) {
+                window.removeEventListener('message', this._messageHandler);
+                this._messageHandler = null;
+            }
+            // Close the popup so it doesn't outlive the component — otherwise
+            // dispose() leaves the popup open with no listener attached.
+            if (this._popup && !this._popup.closed) {
+                this._popup.close();
+            }
+            this._popup = null;
+        },
+
         dispose: function() {
             if (this.disposed) {
                 return;
             }
 
-            this._cleanup();
+            this._cleanupPopup();
             this.$el.off('click');
 
             KenziConnectComponent.__super__.dispose.call(this);
         }
     });
+
+    /**
+     * Pure projection of the GET /integration response → view name.
+     *
+     * Three outcomes:
+     *   - non-200            → 'disconnected'. Per product: any non-200
+     *                          means there is no working integration on
+     *                          Kenzi's side, so let the user start fresh.
+     *   - 200 + both flags   → 'connected'.
+     *   - 200 + missing flag → 'incomplete'.
+     *
+     * `disconnected` is also short-circuited in `_renderInitial` when
+     * `secret_exists` is false (skips the HTTP call). So the JS reaches
+     * `disconnected` via two paths — the short-circuit and this projection.
+     */
+    function connectionState(httpStatus, body) {
+        if (httpStatus !== 200) return 'disconnected';
+        if (body && body.configured && body.claimed) return 'connected';
+        return 'incomplete';
+    }
+
+    function getPath(obj, path) {
+        return path.split('.').reduce(function(acc, key) {
+            return (acc !== null && acc !== undefined) ? acc[key] : undefined;
+        }, obj);
+    }
+
+    function formatFieldValue(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        if (Array.isArray(value)) {
+            return value.join(', ');
+        }
+        return String(value);
+    }
 
     return KenziConnectComponent;
 });

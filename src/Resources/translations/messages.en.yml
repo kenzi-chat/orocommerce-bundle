@@ -15,23 +15,12 @@ kenzi_oro_commerce:
         button:
             connect: 'Connect to Kenzi'
             disconnect: 'Disconnect'
-            retry_delivery: 'Retry delivery'
         status:
             connected: 'Connected to Kenzi'
-            partially_connected: 'Backfill credentials not yet delivered'
             workspace: 'Workspace'
-            instance_key: 'Instance'
-            connected_at: 'Connected'
+            grants: 'Grants'
+            something_wrong: 'Something went wrong with this connection'
+            troubleshooting_link: 'Troubleshooting guide'
         help:
             connect: 'Click to open Kenzi and link this application to your workspace.'
-            retry_delivery: 'Webhooks are active, but Kenzi still needs OAuth2 credentials to backfill historical data.'
             select_website: 'Select a Website from the scope selector above to configure Kenzi for this storefront.'
-        error:
-            no_kenzi_origin: 'Kenzi is not configured. Run oro:platform:update or contact your system administrator.'
-            popup_blocked: 'Please allow popups for this site to connect to Kenzi.'
-            store_failed: 'Failed to store Kenzi connection. Please try again.'
-            disconnect_failed: 'Failed to disconnect. Please try again.'
-        confirm:
-            disconnect: 'Disconnect from Kenzi? This will stop sending order webhooks.'
-            disconnect_title: 'Disconnect from Kenzi'
-            cancel: 'Cancel'

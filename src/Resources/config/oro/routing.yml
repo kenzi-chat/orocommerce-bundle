@@ -1,4 +1,4 @@
-kenzi_orocommerce:
-    resource: '@KenziOroCommerceBundle/Controller/'
-    type: attribute
-    prefix: /admin
+kenzi_oro_commerce:
+    resource: '@KenziOroCommerceBundle/Controller/ConnectController.php'
+    type:     attribute
+    prefix:   /admin/kenzi

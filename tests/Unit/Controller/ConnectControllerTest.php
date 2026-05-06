@@ -6,354 +6,532 @@ namespace Kenzi\OroCommerceBundle\Tests\Unit\Controller;
 
 use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\Controller\ConnectController;
-use Kenzi\OroCommerceBundle\Credential\CredentialDelivery;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
+use Kenzi\OroCommerceBundle\OAuth\OAuthClientFactory;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
+use Oro\Bundle\OAuth2ServerBundle\Entity\Client;
+use Oro\Bundle\OAuth2ServerBundle\Security\EncryptionKeysExistenceChecker;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 final class ConnectControllerTest extends TestCase
 {
     /** @var ConfigManager&MockObject */
     private MockObject $configManager;
+    /** @var HttpClientInterface&MockObject */
+    private MockObject $httpClient;
+    /** @var OAuthClientFactory&MockObject */
+    private MockObject $oauthClientFactory;
     /** @var ApplicationUrlResolver&MockObject */
     private MockObject $urlResolver;
-    /** @var CredentialDelivery&MockObject */
-    private MockObject $credentialDelivery;
+    /** @var EncryptionKeysExistenceChecker&MockObject */
+    private MockObject $encryptionKeysChecker;
     private ConnectController $controller;
+
+    /** @var array<int, array{key: string, value: mixed}> */
+    private array $configSetCalls = [];
+
+    /** @var array<int, string> */
+    private array $configResetCalls = [];
+
+    /** @var array<string, mixed> */
+    private array $stubbedConfig = [];
 
     protected function setUp(): void
     {
         $this->configManager = $this->createMock(ConfigManager::class);
+        $this->httpClient = $this->createMock(HttpClientInterface::class);
+        $this->oauthClientFactory = $this->createMock(OAuthClientFactory::class);
         $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
-        $this->credentialDelivery = $this->createMock(CredentialDelivery::class);
+        $this->encryptionKeysChecker = $this->createMock(EncryptionKeysExistenceChecker::class);
+        $this->encryptionKeysChecker->method('isPrivateKeyExist')->willReturn(true);
+        $this->encryptionKeysChecker->method('isPublicKeyExist')->willReturn(true);
 
         $this->controller = new ConnectController(
             $this->configManager,
+            $this->httpClient,
+            $this->oauthClientFactory,
             $this->urlResolver,
-            $this->credentialDelivery,
+            new NullLogger(),
+            $this->encryptionKeysChecker,
         );
-    }
 
-    // -- Connect: validation --
-
-    public function testConnectReturns400WhenBodyIsEmpty(): void
-    {
-        $request = new Request([], [], [], [], [], [], '');
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-    }
-
-    public function testConnectReturns400WhenBodyIsInvalidJson(): void
-    {
-        $request = new Request([], [], [], [], [], [], 'not json');
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-    }
-
-    public function testConnectReturns400WhenMissingFields(): void
-    {
-        $request = $this->createJsonRequest(['workspace_id' => 'ws_123']);
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"error":"Missing required fields"}',
-            $response->getContent()
-        );
-    }
-
-    public function testConnectReturns400WhenCredentialsAreEmptyStrings(): void
-    {
-        $request = $this->createJsonRequest([
-            'workspace_id' => '',
-            'shared_secret' => '',
-        ]);
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-    }
-
-    public function testConnectReturns400WhenCredentialsAreWhitespaceOnly(): void
-    {
-        $request = $this->createJsonRequest([
-            'workspace_id' => '   ',
-            'shared_secret' => '   ',
-        ]);
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-    }
-
-    public function testConnectReturns400WhenMissingSharedSecret(): void
-    {
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_123',
-        ]);
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(400, $response->getStatusCode());
-    }
-
-    public function testConnectReturns422WhenHostnameEmpty(): void
-    {
-        $this->stubAppUrl('');
-
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_1',
-            'shared_secret' => 'sec_1',
-        ]);
-
-        $response = $this->controller->connect($request);
-
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"error":"Could not determine application hostname"}',
-            $response->getContent()
-        );
-    }
-
-    // -- Connect: success --
-
-    public function testConnectSuccessfully(): void
-    {
-        $this->stubAppUrl('https://b2b.acme-corp.com');
-        $this->credentialDelivery->method('deliver')->willReturn(false);
-
-        $setCalls = [];
-        $this->configManager->expects($this->exactly(5))
-            ->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$setCalls) {
-                $setCalls[] = ['key' => $key, 'value' => $value];
+        $this->configSetCalls = [];
+        $this->configResetCalls = [];
+        $this->stubbedConfig = [];
+        $this->configManager->method('set')
+            ->willReturnCallback(function (string $key, $value) {
+                $this->configSetCalls[] = ['key' => $key, 'value' => $value];
             });
+        $this->configManager->method('reset')
+            ->willReturnCallback(function (string $key) {
+                $this->configResetCalls[] = $key;
+            });
+        $this->configManager->method('get')
+            ->willReturnCallback(function (string $key): mixed {
+                $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
+                return $this->stubbedConfig[$paramName] ?? null;
+            });
+    }
+
+    // ─── connect ─────────────────────────────────────────────────────
+
+    public function testConnectReturns422WhenBodyInvalidJson(): void
+    {
+        $response = $this->controller->connect(new Request([], [], [], [], [], [], 'not json'));
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testConnectReturns422WhenRequiredFieldMissing(): void
+    {
+        $response = $this->controller->connect($this->jsonRequest([
+            'workspace_id' => 'ws_1',
+            'grants' => ['commerce'],
+        ]));
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testConnectReturns422WhenSharedSecretLacksPrefix(): void
+    {
+        $response = $this->controller->connect($this->jsonRequest([
+            'shared_secret' => 'bad_prefix_abc',
+            'workspace_id' => 'ws_1',
+            'grants' => ['commerce'],
+        ]));
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testConnectWritesThreeKeysAndFlushesOnce(): void
+    {
         $this->configManager->expects($this->once())->method('flush');
+        $this->httpClient->expects($this->never())->method('request');
 
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_nano_42',
-            'shared_secret' => 'hmac_secret_xyz',
-        ]);
-
-        $response = $this->controller->connect($request);
+        $response = $this->controller->connect($this->jsonRequest([
+            'shared_secret' => 'ss_xyz',
+            'workspace_id' => 'ws_42',
+            'grants' => ['commerce'],
+        ]));
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"status":"partially_connected","credentials_delivered":false}',
-            $response->getContent()
-        );
+        $this->assertJsonStringEqualsJsonString('{"ok":true}', $response->getContent());
 
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_nano_42');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'hmac_secret_xyz');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_INSTANCE_KEY, 'b2b.acme-corp.com');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, true);
-
-        // connected_at is verified in detail by testConnectWritesConnectedAtTimestamp;
-        // here we just confirm it was included in the 5 set() calls.
-        $connectedAtKey = Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CONNECTED_AT);
-        $connectedAtValues = array_filter($setCalls, fn (array $c) => $c['key'] === $connectedAtKey);
-        $this->assertCount(1, $connectedAtValues, 'connected_at should be set exactly once');
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_SHARED_SECRET, 'ss_xyz');
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_GRANTS, ['commerce']);
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_42');
     }
 
     public function testConnectTrimsWhitespaceFromCredentials(): void
     {
-        $this->stubAppUrl('https://store.test');
-        $this->credentialDelivery->method('deliver')->willReturn(false);
-
-        $setCalls = [];
-        $this->configManager->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$setCalls) {
-                $setCalls[] = ['key' => $key, 'value' => $value];
-            });
         $this->configManager->method('flush');
 
-        $request = $this->createJsonRequest([
+        $this->controller->connect($this->jsonRequest([
+            'shared_secret' => '  ss_padded  ',
             'workspace_id' => '  ws_padded  ',
-            'shared_secret' => '  sec_padded  ',
-        ]);
+            'grants' => ['commerce'],
+        ]));
 
-        $response = $this->controller->connect($request);
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_SHARED_SECRET, 'ss_padded');
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_padded');
+    }
+
+    public function testConnectFiltersNonStringGrantEntries(): void
+    {
+        $this->configManager->method('flush');
+
+        $this->controller->connect($this->jsonRequest([
+            'shared_secret' => 'ss_test',
+            'workspace_id' => 'ws',
+            'grants' => ['commerce', 42, null, 'support'],
+        ]));
+
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_GRANTS, ['commerce', 'support']);
+    }
+
+    // ─── configure ───────────────────────────────────────────────────
+
+    public function testConfigureMintsOAuthAndPatchesWhenCommerceGrantPresent(): void
+    {
+        $this->stubGrants(['commerce']);
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubSecret('sec_abc');
+        $this->stubResolverUrls();
+
+        $this->oauthClientFactory->expects($this->once())
+            ->method('create')
+            ->with('Kenzi OroCommerce', [Client::CLIENT_CREDENTIALS])
+            ->willReturn(['oauth_id_42', 'oauth_secret_42']);
+
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with(
+                'PATCH',
+                'https://app.kenzi.test/api/integration',
+                $this->callback(function (array $options) {
+                    $this->assertSame('Bearer sec_abc', $options['headers']['Authorization']);
+                    $this->assertSame('application/json', $options['headers']['Accept']);
+
+                    $body = $options['json'];
+                    $this->assertSame([
+                        'config' => [
+                            'api_url' => 'https://oro.acme.com/admin/api',
+                            'admin_url' => 'https://oro.acme.com/admin',
+                            'base_url' => 'https://oro.acme.com',
+                            'client_id' => 'oauth_id_42',
+                            'client_secret' => 'oauth_secret_42',
+                        ],
+                    ], $body);
+                    return true;
+                })
+            )
+            ->willReturn($this->responseMock(200, '{"configured":true,"claimed":true}'));
+
+        $response = $this->controller->configure();
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, 'ws_padded');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, 'sec_padded');
+        $this->assertConfigWasSet(Configuration::PARAM_NAME_OAUTH_CLIENT_ID, 'oauth_id_42');
     }
 
-    public function testConnectDerivesInstanceKeyFromAppUrl(): void
+    public function testConfigureDoesNotStoreOAuthClientIdWhenCommerceGrantAbsent(): void
     {
-        $this->stubAppUrl('https://shop.example.org');
-        $this->credentialDelivery->method('deliver')->willReturn(false);
+        $this->stubGrants(['support']);
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubSecret('sec_abc');
+        $this->stubResolverUrls();
 
-        $capturedKey = null;
-        $this->configManager->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$capturedKey) {
-                if ($key === Configuration::getConfigKeyByName(Configuration::PARAM_NAME_INSTANCE_KEY)) {
-                    $capturedKey = $value;
-                }
-            });
-        $this->configManager->method('flush');
+        $this->oauthClientFactory->expects($this->never())->method('create');
 
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_1',
-            'shared_secret' => 'sec_1',
-        ]);
+        $this->httpClient->method('request')
+            ->willReturn($this->responseMock(200, '{"configured":true,"claimed":false}'));
 
-        $this->controller->connect($request);
+        $this->controller->configure();
 
-        $this->assertSame('shop.example.org', $capturedKey);
+        $oauthClientIdKey = Configuration::getConfigKeyByName(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
+        foreach ($this->configSetCalls as $call) {
+            $this->assertNotSame(
+                $oauthClientIdKey,
+                $call['key'],
+                'oauth_client_id must not be written when commerce grant is absent'
+            );
+        }
     }
 
-    public function testConnectWritesConnectedAtTimestamp(): void
+    public function testConfigureSkipsOAuthMintWhenCommerceGrantAbsent(): void
     {
-        $this->stubAppUrl('https://store.test');
-        $this->credentialDelivery->method('deliver')->willReturn(false);
+        $this->stubGrants(['support']);
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubSecret('sec_abc');
+        $this->stubResolverUrls();
 
-        $capturedConnectedAt = null;
-        $this->configManager->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$capturedConnectedAt) {
-                if ($key === Configuration::getConfigKeyByName(Configuration::PARAM_NAME_CONNECTED_AT)) {
-                    $capturedConnectedAt = $value;
-                }
-            });
-        $this->configManager->method('flush');
+        $this->oauthClientFactory->expects($this->never())->method('create');
 
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_1',
-            'shared_secret' => 'sec_1',
-        ]);
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with(
+                'PATCH',
+                $this->anything(),
+                $this->callback(function (array $options) {
+                    $body = $options['json'];
+                    $this->assertSame([
+                        'config' => [
+                            'api_url' => 'https://oro.acme.com/admin/api',
+                            'admin_url' => 'https://oro.acme.com/admin',
+                            'base_url' => 'https://oro.acme.com',
+                        ],
+                    ], $body);
+                    $this->assertArrayNotHasKey('client_id', $body['config']);
+                    $this->assertArrayNotHasKey('client_secret', $body['config']);
+                    return true;
+                })
+            )
+            ->willReturn($this->responseMock(200, '{"configured":true,"claimed":false}'));
 
-        $this->controller->connect($request);
+        $response = $this->controller->configure();
 
-        $this->assertNotEmpty($capturedConnectedAt);
-        $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $capturedConnectedAt);
-        $this->assertNotFalse($parsed, 'connected_at should be a valid ISO 8601 timestamp');
-
-        $diff = abs((new \DateTimeImmutable())->getTimestamp() - $parsed->getTimestamp());
-        $this->assertLessThan(5, $diff, 'connected_at should be within 5 seconds of now');
+        $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function testConnectDeliversCredentials(): void
+    public function testConfigureReturns500WhenOAuthMintThrows(): void
     {
-        $this->stubAppUrl('https://store.test');
+        $this->stubGrants(['commerce']);
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubSecret('sec_abc');
 
-        $this->credentialDelivery->expects($this->once())
-            ->method('deliver')
-            ->willReturn(true);
+        $this->oauthClientFactory->expects($this->once())
+            ->method('create')
+            ->willThrowException(new \RuntimeException('Insufficient permission'));
 
-        $this->configManager->method('set');
-        $this->configManager->method('flush');
+        $this->httpClient->expects($this->never())->method('request');
 
-        $request = $this->createJsonRequest([
-            'workspace_id' => 'ws_1',
-            'shared_secret' => 'sec_1',
-        ]);
+        $response = $this->controller->configure();
 
-        $response = $this->controller->connect($request);
+        $this->assertSame(500, $response->getStatusCode());
+    }
 
+    public function testConfigureReturns500WhenEncryptionKeysMissing(): void
+    {
+        $this->stubGrants(['commerce']);
+
+        $this->encryptionKeysChecker = $this->createMock(EncryptionKeysExistenceChecker::class);
+        $this->encryptionKeysChecker->method('isPrivateKeyExist')->willReturn(false);
+        $this->encryptionKeysChecker->method('isPublicKeyExist')->willReturn(false);
+
+        $controller = new ConnectController(
+            $this->configManager,
+            $this->httpClient,
+            $this->oauthClientFactory,
+            $this->urlResolver,
+            new NullLogger(),
+            $this->encryptionKeysChecker,
+        );
+
+        $this->oauthClientFactory->expects($this->never())->method('create');
+        $this->httpClient->expects($this->never())->method('request');
+
+        $response = $controller->configure();
+
+        $this->assertSame(500, $response->getStatusCode());
+    }
+
+    public function testConfigureForwardsKenziStatusVerbatim(): void
+    {
+        $this->stubGrants([]);
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubSecret('sec_abc');
+        $this->stubResolverUrls();
+
+        $this->httpClient->method('request')
+            ->willReturn($this->responseMock(422, '{"configured":false,"errors":["bad"]}'));
+
+        $response = $this->controller->configure();
+
+        $this->assertSame(422, $response->getStatusCode());
         $this->assertJsonStringEqualsJsonString(
-            '{"status":"connected","credentials_delivered":true}',
+            '{"configured":false,"errors":["bad"]}',
             $response->getContent()
         );
     }
 
-    // -- Retry delivery --
+    // ─── integration ─────────────────────────────────────────────────
 
-    public function testRetryDeliveryReturnsConnectedWhenDeliverySucceeds(): void
+    public function testIntegrationReturns404WhenNoSecret(): void
     {
-        $this->credentialDelivery->expects($this->once())
-            ->method('deliver')
-            ->willReturn(true);
+        $this->stubSecret('');
 
-        $response = $this->controller->retryDelivery();
+        $this->httpClient->expects($this->never())->method('request');
 
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"status":"connected","credentials_delivered":true}',
-            $response->getContent()
-        );
+        $response = $this->controller->integration();
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testRetryDeliveryReturnsPartiallyConnectedWhenDeliveryFails(): void
+    public function testIntegrationGetsAndForwardsBody(): void
     {
-        $this->credentialDelivery->expects($this->once())
-            ->method('deliver')
-            ->willReturn(false);
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
 
-        $response = $this->controller->retryDelivery();
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with(
+                'GET',
+                'https://app.kenzi.test/api/integration',
+                $this->callback(function (array $options) {
+                    $this->assertSame('Bearer sec_abc', $options['headers']['Authorization']);
+                    $this->assertArrayNotHasKey('json', $options);
+                    return true;
+                })
+            )
+            ->willReturn($this->responseMock(200, '{"configured":true,"claimed":true,"claim":{"workspace":{"name":"Acme"}}}'));
+
+        $response = $this->controller->integration();
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"status":"partially_connected","credentials_delivered":false}',
-            $response->getContent()
-        );
+        // Symfony's JsonResponse may augment Cache-Control with `private` —
+        // we only care that `no-store` is present.
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
 
-    // -- Disconnect --
-
-    public function testDisconnectClearsAllConfigFields(): void
+    public function testIntegrationReturns502OnTransportFailure(): void
     {
-        $this->credentialDelivery->expects($this->once())->method('revokeOAuthClient');
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
 
-        $setCalls = [];
-        // Seven keys are cleared in a single flush: the five connection
-        // fields plus the two credential-delivery fields. Writing them all
-        // in one flush is the fix for the double-flush race window where
-        // a concurrent deliver() could see a partially-reset state.
-        $this->configManager->expects($this->exactly(7))
-            ->method('set')
-            ->willReturnCallback(function (string $key, $value) use (&$setCalls) {
-                $setCalls[] = ['key' => $key, 'value' => $value];
-            });
+        $exception = new class ('Connection refused') extends \RuntimeException implements \Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface {};
+        $this->httpClient->method('request')->willThrowException($exception);
+
+        $response = $this->controller->integration();
+
+        $this->assertSame(502, $response->getStatusCode());
+    }
+
+    // ─── disconnect ──────────────────────────────────────────────────
+
+    public function testDisconnectResetsAllFiveLifecycleKeys(): void
+    {
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+
+        $this->httpClient->method('request')
+            ->willReturn($this->responseMock(200, ''));
+
         $this->configManager->expects($this->once())->method('flush');
 
         $response = $this->controller->disconnect();
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString('{"status":"disconnected"}', $response->getContent());
+        $this->assertJsonStringEqualsJsonString('{"ok":true}', $response->getContent());
 
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SYNC_ENABLED, false);
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_SHARED_SECRET, '');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_WORKSPACE_ID, '');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_INSTANCE_KEY, '');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CONNECTED_AT, '');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_OAUTH_CLIENT_ID, '');
-        $this->assertConfigWasSet($setCalls, Configuration::PARAM_NAME_CREDENTIALS_DELIVERED, false);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_SHARED_SECRET);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_GRANTS);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_WORKSPACE_ID);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_WIDGET_ENABLED);
     }
 
-    // -- Helpers --
+    public function testDisconnectStillResetsWhenKenziUnreachable(): void
+    {
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+
+        $this->httpClient->method('request')
+            ->willThrowException(new \RuntimeException('Connection refused'));
+
+        $this->configManager->expects($this->once())->method('flush');
+
+        $response = $this->controller->disconnect();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_SHARED_SECRET);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_GRANTS);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_WORKSPACE_ID);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_WIDGET_ENABLED);
+    }
+
+    public function testDisconnectSendsClaimNullPatch(): void
+    {
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with(
+                'PATCH',
+                'https://app.kenzi.test/api/integration',
+                $this->callback(function (array $options) {
+                    $this->assertSame(['claim' => null], $options['json']);
+                    $this->assertSame(5, $options['timeout']);
+                    return true;
+                })
+            )
+            ->willReturn($this->responseMock(200, ''));
+
+        $this->configManager->method('flush');
+
+        $this->controller->disconnect();
+    }
+
+    public function testDisconnectRevokesStoredOAuthClient(): void
+    {
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubConfigGet(Configuration::PARAM_NAME_OAUTH_CLIENT_ID, 'oauth_id_42');
+
+        $this->httpClient->method('request')->willReturn($this->responseMock(200, ''));
+        $this->configManager->method('flush');
+
+        $this->oauthClientFactory->expects($this->once())
+            ->method('revoke')
+            ->with('oauth_id_42');
+
+        $this->controller->disconnect();
+    }
+
+    public function testDisconnectStillResetsWhenRevokeThrows(): void
+    {
+        $this->stubSecret('sec_abc');
+        $this->stubAppBaseUrl('https://app.kenzi.test');
+        $this->stubConfigGet(Configuration::PARAM_NAME_OAUTH_CLIENT_ID, 'oauth_id_42');
+
+        $this->httpClient->method('request')->willReturn($this->responseMock(200, ''));
+        $this->configManager->expects($this->once())->method('flush');
+
+        $this->oauthClientFactory->method('revoke')
+            ->willThrowException(new \RuntimeException('Doctrine error'));
+
+        $response = $this->controller->disconnect();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertConfigWasReset(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
+    }
+
+    // ─── helpers ─────────────────────────────────────────────────────
 
     /** @param array<string, mixed> $data */
-    private function createJsonRequest(array $data): Request
+    private function jsonRequest(array $data): Request
     {
         return new Request([], [], [], [], [], [], json_encode($data));
     }
 
-    private function stubAppUrl(string $appUrl): void
+    private function stubSecret(string $value): void
     {
-        $host = (string) (parse_url($appUrl, PHP_URL_HOST) ?: '');
-        $this->urlResolver->method('instanceKey')->willReturn($host);
+        $this->stubConfigGet(Configuration::PARAM_NAME_SHARED_SECRET, $value);
     }
 
-    /**
-     * @param array<array{key: string, value: mixed}> $setCalls
-     * @param string|bool $expectedValue
-     */
-    private function assertConfigWasSet(array $setCalls, string $paramName, $expectedValue): void
+    private function stubAppBaseUrl(string $value): void
+    {
+        $this->stubConfigGet(Configuration::PARAM_NAME_APP_BASE_URL, $value);
+    }
+
+    /** @param list<string> $grants */
+    private function stubGrants(array $grants): void
+    {
+        $this->stubConfigGet(Configuration::PARAM_NAME_GRANTS, $grants);
+    }
+
+    private function stubResolverUrls(): void
+    {
+        $this->urlResolver->method('apiUrl')->willReturn('https://oro.acme.com/admin/api');
+        $this->urlResolver->method('adminUrl')->willReturn('https://oro.acme.com/admin');
+        $this->urlResolver->method('baseOrigin')->willReturn('https://oro.acme.com');
+    }
+
+    private function stubConfigGet(string $paramName, mixed $value): void
+    {
+        $this->stubbedConfig[$paramName] = $value;
+    }
+
+    private function responseMock(int $statusCode, string $body): ResponseInterface
+    {
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('getStatusCode')->willReturn($statusCode);
+        $response->method('getContent')->willReturn($body);
+        return $response;
+    }
+
+    /** @param mixed $expectedValue */
+    private function assertConfigWasSet(string $paramName, $expectedValue): void
     {
         $expectedKey = Configuration::getConfigKeyByName($paramName);
-        foreach ($setCalls as $call) {
+        foreach ($this->configSetCalls as $call) {
             if ($call['key'] === $expectedKey) {
                 $this->assertSame($expectedValue, $call['value'], "Config value mismatch for {$paramName}");
                 return;
             }
         }
         $this->fail("Expected config set for {$paramName} was not called");
+    }
+
+    private function assertConfigWasReset(string $paramName): void
+    {
+        $expectedKey = Configuration::getConfigKeyByName($paramName);
+        $this->assertContains(
+            $expectedKey,
+            $this->configResetCalls,
+            "Expected config reset for {$paramName} was not called"
+        );
     }
 }

@@ -55,19 +55,20 @@ These values are seeded by `LoadKenziBaseUrls` on every `oro:install` / `oro:pla
 
 | Parameter | Config Key | Scope | Default | Description |
 |-----------|-----------|-------|---------|-------------|
-| Workspace ID | `workspace_id` | Global | `""` | Kenzi workspace identifier appended as `?w=` param |
-| Enable Sync | `sync_enabled` | Global | `false` | Master switch for webhook dispatch (set by connect/disconnect flow). See "Planned: Per-website order sync" below |
-| Shared Secret | `shared_secret` | Global | `""` | HMAC-SHA256 shared secret (received as `shared_secret` from the Kenzi Connect popup's `kenzi_connected` postMessage payload) |
-| Instance Key | `instance_key` | Global | `""` | Application hostname (e.g. `oro.acme.com`), auto-derived from the admin URL. Sent as `x-kenzi-integration` webhook header so Kenzi can look up the matching `Integration` record |
-| Connected At | `connected_at` | Global | `""` | Timestamp of initial connection |
-| OAuth Client ID | `oauth_client_id` | Global | `""` | Oro database identifier of the generated OAuth2 Client (client_credentials grant). Stored so `CredentialDelivery` can find or revoke the client on retry/disconnect |
-| Credentials Delivered | `credentials_delivered` | Global | `false` | Whether the OAuth2 client_id + client_secret were successfully PATCHed to Kenzi. Idempotency gate — `deliver()` exits early when `true` |
+| Shared Secret | `shared_secret` | Global | `""` | HMAC-SHA256 shared secret. Received from the Kenzi Connect popup's postMessage payload, written by `POST /admin/kenzi/connect`, sent as `Authorization: Bearer` on outbound calls to Kenzi and used to sign webhook payloads |
+| Grants | `grants` | Global | `[]` | Capabilities granted by the Kenzi workspace (e.g. `["commerce"]`). Drives the gate in `WebhookDispatcher::isEnabled()` (commerce grant required for webhook dispatch) and the OAuth2 mint decision in `ConnectController::configure()` |
+| Workspace ID | `workspace_id` | Global | `""` | Kenzi workspace identifier appended as `?w=` param on the storefront widget loader URL |
+| OAuth Client ID | `oauth_client_id` | Global | `""` | Oro database identifier of the OAuth2 client (client_credentials grant) minted during `/configure`. Used by `/disconnect` to revoke the client via `OAuthClientFactory::revoke()` |
+
+The `instance_key` (Oro application hostname) is no longer cached in config — it is computed live from `oro_ui.application_url` via `ApplicationUrlResolver::instanceKey()` everywhere it is needed.
 
 ### Configuration Scoping (CE/EE Compatibility)
 
-**Design principle:** One Oro instance = one Kenzi integration. All connection parameters are global. `widget_enabled` appears at both global and website scope — the global value acts as the default, and per-website overrides control which storefronts show the chat widget. The `x-kenzi-integration` header carries the application hostname so Kenzi identifies the integration regardless of which website an order belongs to.
+**Design principle:** One Oro instance = one Kenzi integration. All connection parameters are global. `widget_enabled` appears at both global and website scope — the global value acts as the default, and per-website overrides control which storefronts show the chat widget. The `x-kenzi-integration` header carries the application hostname (computed live by `ApplicationUrlResolver::instanceKey()`) so Kenzi identifies the integration regardless of which website an order belongs to.
 
-**Planned: Per-website order sync** — Currently `sync_enabled` is global (master switch set by connect/disconnect). A future `order_sync_enabled` config will be added as a per-website toggle in the `website_configuration` tree, following the same pattern as `widget_enabled`. The dispatcher will then use a two-gate check: (1) global `sync_enabled` = integration is connected, (2) per-website `order_sync_enabled` = this website's orders should be dispatched. Until implemented, all websites dispatch webhooks when the integration is connected.
+**Webhook dispatch gate:** `WebhookDispatcher::isEnabled()` returns `true` when `shared_secret` is non-empty AND `commerce` is in `grants`. There is no separate "sync enabled" master switch — the integration is "synced" iff it is connected (has a secret) and the workspace granted commerce capability.
+
+**Planned: Per-website order sync** — A future `order_sync_enabled` config could be added as a per-website toggle in the `website_configuration` tree, following the same pattern as `widget_enabled`. The dispatcher would then use a two-gate check: (1) global `secret + commerce grant` = integration is connected and authorized, (2) per-website `order_sync_enabled` = this website's orders should be dispatched. Until implemented, all websites dispatch webhooks when the integration is connected.
 
 **How scoping works in Oro:**
 
@@ -115,47 +116,79 @@ src/
 
 ### Connect Controller
 
-`ConnectController` provides two POST endpoints behind Oro's admin authentication firewall:
+`ConnectController` provides four endpoints behind Oro's admin authentication firewall, all under the `/admin/kenzi` prefix:
 
-- **`POST /admin/kenzi/connect/connect`** (route: `kenzi_orocommerce_connect`) — Receives `{workspace_id, shared_secret}` from the connect popup's JavaScript. Stores credentials in `ConfigManager` at global scope, enables sync, and auto-derives `instance_key` from the application hostname (via `oro_ui.application_url`).
-- **`POST /admin/kenzi/connect/disconnect`** (route: `kenzi_orocommerce_disconnect`) — Clears all Kenzi connection config at global scope (shared_secret, workspace_id, instance_key, connected_at) and disables sync. Takes no request body.
+- **`POST /admin/kenzi/connect`** (route: `kenzi_connect`) — Receives `{shared_secret, grants, workspace_id}` from the connect popup's JavaScript. Stores all three values in `ConfigManager` at global scope. No HTTP to Kenzi.
+- **`POST /admin/kenzi/configure`** (route: `kenzi_configure`) — Reads stored `grants`. If `commerce` is granted, mints a fresh OAuth2 client via `OAuthClientFactory::create()` and stores its identifier in `oauth_client_id`. PATCHes Kenzi's `/api/integration` with the application config (`api_url`, `admin_url`, `base_url`) plus `client_id`/`client_secret` when commerce is granted. Forwards Kenzi's response body to the JS verbatim.
+- **`GET /admin/kenzi/integration`** (route: `kenzi_integration`) — Returns `404` when no `shared_secret` is stored. Otherwise GETs Kenzi's `/api/integration` and forwards the projection to the JS with `Cache-Control: no-store`.
+- **`POST /admin/kenzi/disconnect`** (route: `kenzi_disconnect`) — Best-effort PATCHes Kenzi's `/api/integration` with `{claim: null}` to release the workspace claim, best-effort revokes the stored OAuth2 client via `OAuthClientFactory::revoke()`, then unconditionally `reset()`s the lifecycle config keys (`shared_secret`, `grants`, `workspace_id`, `oauth_client_id`, `widget_enabled`). Always returns `200 {ok: true}` so a re-connect always sees a clean state.
 
 **Key details:**
 
-- `#[CsrfProtection]` uses Oro's Double Submit Cookie pattern — the admin JS framework sends `X-CSRF-Header` automatically
-- `#[AclAncestor('oro_config_system')]` on both actions — only admins with system configuration permission can connect or disconnect
-- `instance_key` is derived from the application hostname via `oro_ui.application_url` (Oro's canonical application URL config, set during `oro:install`)
-- Credentials are trimmed before validation and storage — whitespace-only values are rejected
-- Routes are registered via `Resources/config/oro/routing.yml` with attribute-based routing and `/admin` prefix
+- `#[AclAncestor('oro_config_system')]` is set at the class level — applies to all four actions. Only admins with system configuration permission can hit any of them.
+- `#[CsrfProtection]` is set on the three POST actions. The GET action passes through Oro's admin firewall + ACL alone (per spec §8.2).
+- All outbound HTTP to Kenzi (configure PATCH, integration GET, disconnect claim release) is inlined via a private `request()` helper that builds the bearer + URL + JSON envelope. No separate `IntegrationApiClient` service.
+- All five lifecycle config keys are cleared on disconnect via `ConfigManager::reset()` (which removes the override row from `oro_config_value` entirely — no trace, no audit row).
+- `OAuthClientFactory::create()` is stateless: every call mints a fresh client (per spec §7.5 — no read-before-write, no cleanup at configure time). The `oauth_client_id` config key tracks the most-recently-minted client so disconnect can revoke it. The disconnect-time revoke pre-dates the new integration model — it was already in place and kept as-is. It cleans up only the *most-recent* client; orphans from prior re-configure cycles still need manual cleanup in Oro admin → OAuth Applications, filtered by name "Kenzi OroCommerce".
 
-The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager` (global) injected.
+The service is registered as `kenzi_oro_commerce.controller.connect` with `ConfigManager` (global), `HttpClientInterface`, `OAuthClientFactory`, `ApplicationUrlResolver`, and `LoggerInterface` injected.
 
 ### Connect Button JavaScript
 
-`kenzi-connect-component.js` is an Oro `BaseComponent` auto-initialized on the system configuration page. It handles the popup-based connect flow:
+`kenzi-connect-component.js` is an Oro `BaseComponent` auto-initialized on the system configuration page. The Twig form widget renders three sibling slot containers (`data-state="disconnected"`, `data-state="connected"`, `data-state="incomplete"`), all hidden by default. The JS picks one based on the integration projection received from `GET /admin/kenzi/integration` and unhides it. Server-side branching on connection state was removed — the integration object IS the state.
 
-**Popup URL parameters** (sent to Kenzi `/connect`):
+**Bootstrap data (`data-kenzi-bootstrap` attribute on the container):**
 
-| Param | Value | Description |
-|-------|-------|-------------|
-| `platform` | `oro_commerce` | Platform identifier |
-| `instance_key` | Application hostname | Unique identifier for the Oro instance |
-| `api_url` | Back-office API base URL | Full URL with scheme and `/admin/api` prefix (e.g. `https://oro.acme.com/admin/api`) |
-| `nonce` | `crypto.randomUUID()` | CSRF correlation — echoed back in postMessage |
-| `origin` | `window.location.origin` | Oro admin origin for postMessage targeting |
-| `requested_capabilities` | `commerce` | Requests commerce data sync capability |
-| `admin_url` | Oro admin dashboard URL | For deep-linking to orders/customers in Kenzi |
-| `base_url` | Application root origin (e.g., `https://oro.acme.com`) | Stored in `integration.meta["base_url"]` — used to derive the OAuth2 token endpoint and to construct absolute product image URLs during backfill |
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `kenzi_app_origin` | `app_base_url` config | popup URL base + postMessage origin check |
+| `instance_key` | `ApplicationUrlResolver::instanceKey()` (live) | popup URL `?key=` param |
+| `supported_grants` | static `["commerce"]` | popup URL `?supported_grants=` param |
+| `endpoints` | `RouterInterface::generate()` for the four routes | XHR targets |
+| `secret_exists` | non-empty `shared_secret` config check | drives the loading-flow short-circuit (skip `GET /integration` when no secret) |
 
-**postMessage contract** — the JS listens for `kenzi_connected` (underscore, not colon) from the Kenzi popup:
+**Loading flow (on page mount):**
+
+1. If `secret_exists === false` → render `disconnected` slot. Done. No HTTP.
+2. Else `GET /admin/kenzi/integration` → projection picks `disconnected`, `connected`, or `incomplete` → render. On uncaught fetch error → fall back to `disconnected`.
+
+**Pure projection (`connectionState`):**
+
+Reached when `secret_exists` is true (the short-circuit handles the no-secret case upstream). Per product: any non-200 from the GET means there is no working integration on Kenzi's side, so the user gets the Connect button to start fresh.
 
 ```javascript
-// Received from Phoenix
-{ type: "kenzi_connected", nonce, workspace_id, shared_secret, ... }
-
-// Sent to ConnectController via AJAX
-{ workspace_id, shared_secret }
+function connectionState(httpStatus, body) {
+  if (httpStatus !== 200) return 'disconnected';
+  if (body && body.configured && body.claimed) return 'connected';
+  return 'incomplete';
+}
 ```
+
+**View meanings:**
+
+- `disconnected` — no working integration. Either no secret stored, or Kenzi did not return a 200 (bundle 4XX/5XX, Kenzi unreachable, network error, etc.). Show the Connect button so the user can start fresh.
+- `connected` — Kenzi confirms `configured && claimed`. Show the green status panel and Disconnect button.
+- `incomplete` — Kenzi returned 200 but the integration is not yet `configured && claimed`. Show the yellow warning panel and Disconnect button.
+
+**Connect popup URL (sent to Kenzi):**
+
+```
+{kenzi_app_origin}/connect?type=oro_commerce&key={instance_key}&supported_grants=commerce
+```
+
+**postMessage payload** — the JS listens for messages whose `event.origin` matches `kenzi_app_origin` AND `event.source` is the popup window:
+
+```javascript
+// Received from Kenzi popup
+{ integration_id, workspace_id, shared_secret, grants }
+
+// Sent to /admin/kenzi/connect via $.ajax
+{ shared_secret, workspace_id, grants }
+```
+
+After `/connect` returns 200, the JS chains to `POST /admin/kenzi/configure` and reloads the page on success. Disconnect also reloads on success so all derived UI state (the `widget_enabled` checkbox, etc.) refreshes.
+
+XHR uses `$.ajax`, which goes through Oro's jQuery prefilter for automatic `X-CSRF-Header` injection from the `_csrf` cookie.
 
 ### Order Payload Serializer
 
@@ -189,16 +222,17 @@ The service is registered manually in `services.yml` as `kenzi_oro_commerce.seri
 
 ### Webhook Dispatcher
 
-`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It derives the webhook URL from the global `app_base_url` config (`{app_base_url}/webhooks/oro-commerce`) and reads `shared_secret` and `integration_key` from global scope.
+`WebhookDispatcher` signs and sends payloads to the Kenzi webhook endpoint. It derives the webhook URL from the global `app_base_url` config (`{app_base_url}/webhooks/oro-commerce`), reads `shared_secret` from global scope, and computes `instance_key` live via `ApplicationUrlResolver::instanceKey()`.
+
+**Gate (`isEnabled()`):** returns `true` IFF `shared_secret` is a non-empty string AND `commerce` is in `grants`. Both are config-derived; there is no separate `sync_enabled` flag.
 
 **Dispatch flow:**
 
-1. Check `sync_enabled` — return `false` if disabled
-2. Derive webhook URL from global `app_base_url` (`{app_base_url}/webhooks/oro-commerce`), read `shared_secret`, `instance_key` — return `false` if any are empty
-3. JSON-encode payload with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR`
-4. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true))` — raw binary output, then base64
-5. Generate unique delivery ID (`Uuid::v4`) and current Unix timestamp
-6. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-integration`, `x-kenzi-event`
+1. Read `app_base_url` and `shared_secret` from config; compute `instance_key` from the resolver
+2. JSON-encode payload with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR`
+3. Compute HMAC-SHA256: `base64_encode(hash_hmac('sha256', $rawBody, $sharedSecret, true))` — raw binary output, then base64
+4. Generate unique delivery ID (`Uuid::v4`) and current Unix timestamp
+5. POST with headers: `x-kenzi-signature`, `x-kenzi-delivery-id`, `x-kenzi-timestamp`, `x-kenzi-integration`, `x-kenzi-event`
 
 **Critical invariants:**
 

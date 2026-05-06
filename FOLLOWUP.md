@@ -8,89 +8,42 @@ enabling change."
 
 ---
 
-## 1. Bind `credentials_delivered` to connection identity
-
-**Source:** Code review (orocommerce-bundle-reviewer, 2026-04 review of OAuth2 credential delivery)
-
-**Symptom:** After delivering credentials successfully, disconnecting, and
-reconnecting to a *different* Kenzi workspace, `CredentialDelivery::deliver()`
-can return early from the `isDelivered()` guard and skip the PATCH. The new
-workspace ends up connected for webhooks but without OAuth2 client credentials,
-so backfill fails with 401.
-
-**Root cause:** `isDelivered()` reads a plain boolean config value
-(`credentials_delivered`). It has no binding to *which* connection the
-delivery was performed for, so state from a previous connection leaks
-across a reconnect.
-
-**Why the obvious fix is wrong:** The original review suggested binding to
-`instance_key`. That would not help — `instance_key` is derived from
-`oro_ui.application_url` (the Oro hostname) and stays constant across
-reconnects. The values that actually change are `workspace_id` and
-`shared_secret`.
-
-**Proposed fix:** Bind delivery state to a short hash of `shared_secret`.
-
-- Rename `PARAM_NAME_CREDENTIALS_DELIVERED` → `PARAM_NAME_CREDENTIALS_DELIVERED_SECRET_HASH`
-- Type changes from `bool` → `string` (empty = not delivered)
-- `isDelivered()` becomes:
-  ```php
-  $stored = (string) $this->getConfig(PARAM_NAME_CREDENTIALS_DELIVERED_SECRET_HASH);
-  return $stored !== '' && $stored === $this->currentSecretHash();
-  ```
-- On successful delivery, store `substr(hash('sha256', $sharedSecret), 0, 16)`
-  instead of `true`.
-- `KenziConnectButtonType` keeps exposing `credentials_delivered` as a derived
-  bool in the view vars so the Twig template is untouched.
-
-**Cost:** ~6 touch points plus a data migration
-(`LoadKenziCredentialsDeliveredMigration`) that rewrites existing rows:
-`true` → current hash of the stored secret, `false` → `''`.
-
-**Why deferred:** Reconnecting a production Oro bundle to a different Kenzi
-workspace is vanishingly rare. Not worth the migration cost until we see it
-in the wild.
-
-**Revisit trigger:** Any support ticket where a customer reports "backfill
-is broken after reconnecting" or similar.
-
----
-
-## 2. Decouple OAuth2 client owner from the current web request
+## 1. Decouple OAuth2 client owner from the current web request
 
 **Source:** Code review (clean-architecture-expert, 2026-04 review of OAuth2 credential delivery)
 
-**Symptom:** `CredentialDelivery::findOrCreateOAuthClient()` uses
+**Symptom:** `OAuthClientFactory::create()` uses
 `TokenAccessorInterface::getUserId()` to set the OAuth2 client's owning user.
 This only works inside a web request — any CLI command, queued worker, or
-scheduled job that calls `deliver()` will see `getUserId() === null` and
-log `"No authenticated user — cannot set OAuth2 client owner"` then fail.
+scheduled job that calls `create()` will see `getUserId() === null` and
+throw `"No authenticated user — cannot set OAuth2 client owner"` then fail.
 
-**Root cause:** The owning user is read at *delivery time* from the request
+**Root cause:** The owning user is read at *mint time* from the request
 context instead of being captured at *connect time* and persisted.
 
 **Proposed fix:**
-1. Add `PARAM_NAME_OAUTH_OWNER_USER_ID` to `Configuration`.
+1. Add `PARAM_NAME_OAUTH_OWNER_USER_ID` to `Configuration` as a fifth
+   lifecycle key.
 2. `ConnectController::connect()` captures the current user id and stores it
    in config alongside the other connection state.
-3. `findOrCreateOAuthClient()` reads the stored user id instead of calling
-   `TokenAccessor`. `TokenAccessor` dependency can eventually be dropped from
-   `CredentialDelivery`.
-4. On disconnect, clear the stored user id alongside other connection state.
+3. `OAuthClientFactory::create()` accepts a user id parameter instead of
+   reading from `TokenAccessor`. `TokenAccessor` dependency can be dropped
+   from the factory.
+4. On disconnect, clear the stored user id alongside other lifecycle keys.
 
 **Why deferred:** There is no CLI / queue / scheduled-job retry path today.
-The `retry-delivery` endpoint added for code review item #9 runs in a web
-request, so `TokenAccessor` is always populated. The constraint is purely
-latent.
+`ConnectController::configure()` is the only caller of `create()`, and it
+runs in a web request, so `TokenAccessor` is always populated. The
+constraint is purely latent.
 
 **Revisit trigger:** The moment we add any non-web-request call site for
-`CredentialDelivery::deliver()` — an Oban-style queue retry, a CLI command,
+`OAuthClientFactory::create()` — an Oban-style queue retry, a CLI command,
 a cron job, etc. This is a blocker for those, so the work should land as
 part of whichever feature introduces them.
 
 ---
 
-## 3. Eager-load product images in OrderWebhookProcessor
+## 2. Eager-load product images in OrderWebhookProcessor
 
 **Source:** GitHub code review (commit 3686a95b, 2026-04)
 
@@ -120,7 +73,7 @@ we add synchronous webhook dispatch for any reason.
 
 ---
 
-## 4. Align product image selection between webhook and backfill paths
+## 3. Align product image selection between webhook and backfill paths
 
 **Source:** GitHub code review (commit 3686a95b, 2026-04)
 
@@ -152,3 +105,45 @@ instance to inspect the `productimages` resource schema.
 **Revisit trigger:** Any report of mismatched product images between
 webhook-synced and backfill-synced products, or next time we're inspecting
 the Oro JSON:API responses on a demo instance.
+
+---
+
+## 4. Extract a shared accessor for ConfigManager boilerplate
+
+**Source:** Code review (clean-architecture-expert + orocommerce-bundle-reviewer)
+
+**Symptom:** The boilerplate
+`$this->configManager->get(Configuration::getConfigKeyByName($paramName))`
+(plus its `set` and `reset` siblings) repeats across 5 classes:
+
+- `ConnectController` — has private `getConfig`/`setConfig`/`resetConfig` trio.
+- `WebhookDispatcher` — has its own private `getConfig` (identical body to
+  ConnectController's).
+- `KenziConnectButtonType` — inline reads.
+- `WidgetDataProvider` — inline reads.
+- `LoadKenziBaseUrls` (data migration) — inline writes.
+
+Two classes carry their own copy of the same one-liner; three have the
+boilerplate inline.
+
+**Proposed fix:** Extract a shared accessor service that wraps
+`ConfigManager` + `Configuration::getConfigKeyByName` and exposes named
+domain getters (`getSharedSecret(): string`, `getGrants(): list<string>`,
+`isConnected(): bool`, `saveConnection(...)`, `disconnect()`, etc.).
+Match Oro core's `*ConfigProvider` precedent (`CustomerConfigProvider`,
+`TaxConfigProvider`, `CheckoutConfigProvider`); the WordPress plugin's
+`platforms/wordpress/src/Settings.php` is a useful reference shape.
+Refactor all 5 classes to inject the new service. Delete the per-class
+private helpers in `ConnectController` and `WebhookDispatcher`.
+
+**Why deferred:** The narrow per-class private helpers are correct for
+each class in isolation. The cross-class duplication is real but no
+worse than today, and the narrow V9 fix made it MORE visible (5 identical
+helper bodies is a louder signal than mixed inline/helper styles).
+Bundling the cross-class extraction into the V9 PR would have been a
+larger churn touching 4 stable files.
+
+**Revisit trigger:** A 6th caller of the `configManager->get(...)`
+boilerplate appearing, OR any of the three currently-inline classes
+(`KenziConnectButtonType`, `WidgetDataProvider`, `LoadKenziBaseUrls`)
+growing its own private helper. Either is a clear "now extract" signal.

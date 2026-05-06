@@ -1,65 +1,69 @@
 {#
     Renders the Kenzi connect/disconnect button on the system configuration page.
 
-    The website context comes from Oro's built-in scope selector — when the admin
-    selects a Website, the page reloads and all config values return values scoped
-    to that website. The KenziConnectButtonType form type reads the connection state
-    from ConfigManager and passes it here as view variables.
+    Three sibling slot containers, all hidden by default. The JS component
+    (kenzi-connect-component) picks one based on the integration projection
+    received from `/admin/kenzi/integration` and unhides it. No server-side
+    branching on connection state — the integration object is the state.
 
-    The page component (kenzi-connect-component) is auto-initialized by Oro's
-    PageController via the data-page-component-module attribute below.
+    Three slots, three views:
+      - disconnected — no working integration. Either no secret stored,
+                       or Kenzi did not return a 200. Show the Connect button.
+      - connected    — Kenzi confirms `configured && claimed`. Show the
+                       green status panel and the Disconnect button.
+      - incomplete   — Kenzi returned 200 but is not yet `configured && claimed`.
+                       Show the yellow warning panel and the Disconnect button.
+
+    The bootstrap dict (data-kenzi-bootstrap) carries everything the JS needs:
+    Kenzi app origin, instance key, route URLs, and the `secret_exists`
+    short-circuit flag for the no-connection case.
 #}
 {% block kenzi_connect_button_widget %}
-    {% set componentOptions = {
-        storeUrl: path('kenzi_orocommerce_connect'),
-        disconnectUrl: path('kenzi_orocommerce_disconnect'),
-        retryDeliveryUrl: path('kenzi_orocommerce_retry_delivery'),
-        kenziOrigin: kenzi_origin,
-        instanceKey: instance_key,
-        adminUrl: admin_url,
-        apiUrl: api_url,
-        baseUrl: base_url
-    } %}
+    {% macro disconnect_button() %}
+        <button type="button" class="btn btn-danger" data-action="disconnect">
+            <i class="fa fa-unlink"></i>
+            {{ 'kenzi_oro_commerce.connect.button.disconnect'|trans }}
+        </button>
+    {% endmacro %}
 
-    <div class="kenzi-connect-status"
+    <div class="kenzi-connection"
          data-page-component-module="kenziorocommerce/js/app/components/kenzi-connect-component"
-         data-page-component-options="{{ componentOptions|json_encode }}">
-        {% if is_connected %}
-            <div class="alert alert-success">
-                <i class="fa fa-check-circle"></i>
-                <strong>{{ 'kenzi_oro_commerce.connect.status.connected'|trans }}</strong><br>
-                {{ 'kenzi_oro_commerce.connect.status.workspace'|trans }}: {{ workspace_id }}<br>
-                {{ 'kenzi_oro_commerce.connect.status.instance_key'|trans }}: {{ instance_key }}<br>
-                {{ 'kenzi_oro_commerce.connect.status.connected_at'|trans }}: {{ connected_at|oro_format_datetime }}
-            </div>
-            {% if not credentials_delivered %}
-                <div class="alert alert-warning">
-                    <i class="fa fa-exclamation-triangle"></i>
-                    <strong>{{ 'kenzi_oro_commerce.connect.status.partially_connected'|trans }}</strong><br>
-                    {{ 'kenzi_oro_commerce.connect.help.retry_delivery'|trans }}
-                    <div style="margin-top: 8px;">
-                        <button type="button" class="btn btn-warning"
-                                data-action="retry-delivery">
-                            <i class="fa fa-refresh"></i>
-                            {{ 'kenzi_oro_commerce.connect.button.retry_delivery'|trans }}
-                        </button>
-                    </div>
-                </div>
-            {% endif %}
-            <button type="button" class="btn btn-danger"
-                    data-action="disconnect">
-                <i class="fa fa-unlink"></i>
-                {{ 'kenzi_oro_commerce.connect.button.disconnect'|trans }}
-            </button>
-        {% else %}
-            <button type="button" class="btn btn-primary"
-                    data-action="connect">
+         data-page-component-options="{}"
+         data-kenzi-bootstrap="{{ kenzi_bootstrap|json_encode|escape('html_attr') }}">
+
+        <div data-state="disconnected" hidden>
+            <button type="button" class="btn btn-primary" data-action="connect">
                 <i class="fa fa-link"></i>
                 {{ 'kenzi_oro_commerce.connect.button.connect'|trans }}
             </button>
             <p class="help-block">
                 {{ 'kenzi_oro_commerce.connect.help.connect'|trans }}
             </p>
-        {% endif %}
+        </div>
+
+        <div data-state="connected" hidden>
+            <div class="alert alert-success">
+                <i class="fa fa-check-circle"></i>
+                <strong>{{ 'kenzi_oro_commerce.connect.status.connected'|trans }}</strong><br>
+                {{ 'kenzi_oro_commerce.connect.status.workspace'|trans }}:
+                <span data-field="claim.workspace.name"></span><br>
+                {{ 'kenzi_oro_commerce.connect.status.grants'|trans }}:
+                <span data-field="claim.grants"></span>
+            </div>
+            {{ _self.disconnect_button() }}
+        </div>
+
+        <div data-state="incomplete" hidden>
+            <div class="alert alert-warning">
+                <i class="fa fa-exclamation-triangle"></i>
+                <strong>{{ 'kenzi_oro_commerce.connect.status.something_wrong'|trans }}</strong>
+                <p class="mt-1 mb-0">
+                    <a href="https://wiki.kenzi.chat/integrations/orocommerce/#troubleshooting" target="_blank" rel="noopener noreferrer">
+                        {{ 'kenzi_oro_commerce.connect.status.troubleshooting_link'|trans }}
+                    </a>
+                </p>
+            </div>
+            {{ _self.disconnect_button() }}
+        </div>
     </div>
 {% endblock %}

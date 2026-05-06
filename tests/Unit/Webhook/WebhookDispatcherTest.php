@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kenzi\OroCommerceBundle\Tests\Unit\Webhook;
 
+use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Kenzi\OroCommerceBundle\Webhook\WebhookDispatcher;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
@@ -20,55 +21,73 @@ final class WebhookDispatcherTest extends TestCase
     private MockObject $httpClient;
     /** @var ConfigManager&MockObject */
     private MockObject $configManager;
+    /** @var ApplicationUrlResolver&MockObject */
+    private MockObject $urlResolver;
     private WebhookDispatcher $dispatcher;
 
     protected function setUp(): void
     {
         $this->httpClient = $this->createMock(HttpClientInterface::class);
         $this->configManager = $this->createMock(ConfigManager::class);
+        $this->urlResolver = $this->createMock(ApplicationUrlResolver::class);
 
         $this->dispatcher = new WebhookDispatcher(
             $this->httpClient,
             $this->configManager,
+            $this->urlResolver,
             new NullLogger(),
         );
     }
 
     // -- isEnabled ────────────────────────────────────────────────────
 
-    public function testIsEnabledReturnsTrueWhenFullyConfigured(): void
+    public function testIsEnabledReturnsTrueWhenSecretAndCommerceGrantSet(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig('secret', ['commerce']);
 
         $this->assertTrue($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledReturnsFalseWhenSyncDisabled(): void
+    public function testIsEnabledReturnsFalseWhenSecretMissing(): void
     {
-        $this->stubConfig(false, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubConfig('', ['commerce']);
 
         $this->assertFalse($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledReturnsFalseWhenMissingSecret(): void
+    public function testIsEnabledReturnsFalseWhenSecretIsNull(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', '', 'store.com');
+        $this->stubConfig(null, ['commerce']);
 
         $this->assertFalse($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledReturnsFalseWhenMissingAppBaseUrl(): void
+    public function testIsEnabledReturnsFalseWhenCommerceGrantMissing(): void
     {
-        $this->stubConfig(true, '', 'secret', 'store.com');
+        $this->stubConfig('secret', ['support']);
 
         $this->assertFalse($this->dispatcher->isEnabled());
     }
 
-    public function testIsEnabledReturnsFalseWhenMissingInstanceKey(): void
+    public function testIsEnabledReturnsFalseWhenGrantsEmpty(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', '');
+        $this->stubConfig('secret', []);
 
         $this->assertFalse($this->dispatcher->isEnabled());
+    }
+
+    public function testIsEnabledReturnsFalseWhenGrantsNotArray(): void
+    {
+        $this->stubConfig('secret', null);
+
+        $this->assertFalse($this->dispatcher->isEnabled());
+    }
+
+    public function testIsEnabledReturnsTrueWhenCommerceAlongOtherGrants(): void
+    {
+        $this->stubConfig('secret', ['support', 'commerce']);
+
+        $this->assertTrue($this->dispatcher->isEnabled());
     }
 
     // -- dispatch ─────────────────────────────────────────────────────
@@ -76,7 +95,7 @@ final class WebhookDispatcherTest extends TestCase
     public function testDispatchSendsCorrectHmacSignature(): void
     {
         $secret = 'test_secret_abc123';
-        $this->stubConfig(true, 'https://kenzi.test', $secret, 'test.store.com');
+        $this->stubDispatch($secret, 'https://kenzi.test', 'test.store.com');
 
         $payload = ['event' => 'order.created', 'timestamp' => 1700000000, 'data' => ['id' => 1]];
 
@@ -96,7 +115,6 @@ final class WebhookDispatcherTest extends TestCase
                     $this->assertSame('test.store.com', $options['headers']['x-kenzi-integration']);
                     $this->assertSame('order.created', $options['headers']['x-kenzi-event']);
 
-                    // Verify the body round-trips to the same payload
                     $decoded = json_decode($rawBody, true);
                     $this->assertSame($payload, $decoded);
 
@@ -113,7 +131,7 @@ final class WebhookDispatcherTest extends TestCase
      */
     public function testDispatchThrowsOnNon2xxResponse(int $statusCode): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock($statusCode));
@@ -137,7 +155,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchSucceedsOnUpperBound2xx(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
         $this->httpClient->expects($this->once())
             ->method('request')
             ->willReturn($this->createResponseMock(299));
@@ -147,7 +165,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchThrowsTransportExceptionFromRequest(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
 
         $exception = new class ('Connection timed out') extends \RuntimeException implements TransportExceptionInterface {};
         $this->httpClient->method('request')->willThrowException($exception);
@@ -160,7 +178,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchThrowsTransportExceptionFromGetStatusCode(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
 
         $exception = new class ('DNS resolution failed') extends \RuntimeException implements TransportExceptionInterface {};
         $response = $this->createMock(ResponseInterface::class);
@@ -175,7 +193,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchThrowsJsonExceptionOnEncodingFailure(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
         $this->httpClient->expects($this->never())->method('request');
 
         $this->expectException(\JsonException::class);
@@ -185,7 +203,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testEachDispatchGeneratesUniqueDeliveryId(): void
     {
-        $this->stubConfig(true, 'https://kenzi.test', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://kenzi.test', 'store.com');
 
         $deliveryIds = [];
         $this->httpClient->method('request')
@@ -203,7 +221,7 @@ final class WebhookDispatcherTest extends TestCase
 
     public function testDispatchDerivesWebhookUrlFromAppBaseUrl(): void
     {
-        $this->stubConfig(true, 'https://app.kenzi.chat', 'secret', 'store.com');
+        $this->stubDispatch('secret', 'https://app.kenzi.chat', 'store.com');
 
         $this->httpClient->expects($this->once())
             ->method('request')
@@ -217,10 +235,29 @@ final class WebhookDispatcherTest extends TestCase
         $this->dispatcher->dispatch(['data' => []], 'order.created');
     }
 
+    public function testDispatchUsesLiveInstanceKeyFromUrlResolver(): void
+    {
+        $this->stubDispatch('secret', 'https://kenzi.test', 'live.derived.host');
+
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with(
+                'POST',
+                'https://kenzi.test/webhooks/oro-commerce',
+                $this->callback(function (array $options) {
+                    $this->assertSame('live.derived.host', $options['headers']['x-kenzi-integration']);
+                    return true;
+                })
+            )
+            ->willReturn($this->createResponseMock(200));
+
+        $this->dispatcher->dispatch(['data' => []], 'order.created');
+    }
+
     public function testSignatureUsesRawBodyBytes(): void
     {
         $secret = 'known_secret';
-        $this->stubConfig(true, 'https://kenzi.test', $secret, 'store.com');
+        $this->stubDispatch($secret, 'https://kenzi.test', 'store.com');
 
         $payload = ['url' => 'https://example.com/path', 'emoji' => "\u{1F600}"];
 
@@ -235,32 +272,50 @@ final class WebhookDispatcherTest extends TestCase
 
         $this->dispatcher->dispatch($payload, 'order.created');
 
-        // Verify the exact same bytes were used for signing and sending
         $expectedSignature = base64_encode(hash_hmac('sha256', $capturedBody, $secret, true));
         $this->assertSame($expectedSignature, $capturedSignature);
 
-        // Verify JSON_UNESCAPED_SLASHES and JSON_UNESCAPED_UNICODE are in effect
         $this->assertStringContainsString('https://example.com/path', $capturedBody);
         $this->assertStringNotContainsString('\/', $capturedBody);
     }
 
     /**
-     * Stub ConfigManager::get() — all Kenzi config is read from global scope.
+     * Stub ConfigManager for the isEnabled() matrix.
+     *
+     * @param array<int, string>|null $grants
      */
-    private function stubConfig(bool $enabled, string $appBaseUrl, string $secret, string $instanceKey): void
+    private function stubConfig(?string $secret, ?array $grants): void
     {
         $this->configManager->method('get')
-            ->willReturnCallback(function (string $key) use ($enabled, $appBaseUrl, $secret, $instanceKey): mixed {
+            ->willReturnCallback(function (string $key) use ($secret, $grants): mixed {
                 $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
 
                 return match ($paramName) {
-                    Configuration::PARAM_NAME_SYNC_ENABLED => $enabled,
-                    Configuration::PARAM_NAME_APP_BASE_URL => $appBaseUrl,
                     Configuration::PARAM_NAME_SHARED_SECRET => $secret,
-                    Configuration::PARAM_NAME_INSTANCE_KEY => $instanceKey,
+                    Configuration::PARAM_NAME_GRANTS => $grants,
                     default => null,
                 };
             });
+    }
+
+    /**
+     * Stub everything dispatch() reads — secret + app base URL on ConfigManager,
+     * instance key on the resolver.
+     */
+    private function stubDispatch(string $secret, string $appBaseUrl, string $instanceKey): void
+    {
+        $this->configManager->method('get')
+            ->willReturnCallback(function (string $key) use ($secret, $appBaseUrl): mixed {
+                $paramName = str_replace(Configuration::ROOT_NODE . '.', '', $key);
+
+                return match ($paramName) {
+                    Configuration::PARAM_NAME_SHARED_SECRET => $secret,
+                    Configuration::PARAM_NAME_APP_BASE_URL => $appBaseUrl,
+                    Configuration::PARAM_NAME_GRANTS => ['commerce'],
+                    default => null,
+                };
+            });
+        $this->urlResolver->method('instanceKey')->willReturn($instanceKey);
     }
 
     /** @return ResponseInterface&MockObject */
