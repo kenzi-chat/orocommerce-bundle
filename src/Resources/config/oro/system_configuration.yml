@@ -19,7 +19,7 @@ system_configuration:
                 resettable: false
         kenzi_oro_commerce.widget_enabled:
             data_type: boolean
-            type: Symfony\Component\Form\Extension\Core\Type\CheckboxType
+            type: Kenzi\OroCommerceBundle\Form\Type\KenziWidgetToggleType
             priority: 20
             options:
                 label: kenzi_oro_commerce.system_configuration.fields.widget_enabled.label
