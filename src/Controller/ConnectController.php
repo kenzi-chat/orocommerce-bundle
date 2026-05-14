@@ -8,7 +8,6 @@ use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Kenzi\OroCommerceBundle\DependencyInjection\Configuration;
 use Kenzi\OroCommerceBundle\OAuth\OAuthClientFactory;
 use Oro\Bundle\ConfigBundle\Config\ConfigManager;
-use Oro\Bundle\OAuth2ServerBundle\Entity\Client;
 use Oro\Bundle\OAuth2ServerBundle\Security\EncryptionKeysExistenceChecker;
 use Oro\Bundle\SecurityBundle\Attribute\AclAncestor;
 use Oro\Bundle\SecurityBundle\Attribute\CsrfProtection;
@@ -125,7 +124,7 @@ class ConnectController
             try {
                 [$clientId, $clientSecret] = $this->oauthClientFactory->create(
                     self::OAUTH_CLIENT_NAME,
-                    [Client::CLIENT_CREDENTIALS],
+                    ['client_credentials'],
                 );
             } catch (\RuntimeException $e) {
                 $this->logger->error('OAuth client mint failed', [
