@@ -10,8 +10,7 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
 /**
  * Defines the message schema for Kenzi order webhook dispatches.
  *
- * Messages are produced by entity listeners (OrderCheckoutListener,
- * OrderUpdateListener) and consumed by OrderWebhookProcessor.
+ * Messages are produced by OrderWebhookListener and consumed by OrderWebhookProcessor.
  */
 class OrderWebhookTopic extends AbstractTopic
 {

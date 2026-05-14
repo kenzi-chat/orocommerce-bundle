@@ -88,19 +88,11 @@ services:
             - { name: oro_message_queue.client.message_processor }
             - { name: monolog.logger, channel: kenzi_oro_commerce }
 
-    # Event listeners — produce async messages instead of dispatching directly
-    kenzi_oro_commerce.event_listener.order_checkout:
-        class: Kenzi\OroCommerceBundle\EventListener\OrderCheckoutListener
-        arguments:
-            - '@oro_message_queue.client.message_producer'
-            - '@logger'
-        tags:
-            - { name: monolog.logger, channel: kenzi_oro_commerce }
-            - { name: kernel.event_listener, event: extendable_action.finish_checkout, method: onFinishCheckout, priority: -10 }
-
-    kenzi_oro_commerce.event_listener.order_update:
-        class: Kenzi\OroCommerceBundle\EventListener\OrderUpdateListener
+    # Event listener — produces async webhook messages for Order lifecycle events
+    kenzi_oro_commerce.event_listener.order_webhook:
+        class: Kenzi\OroCommerceBundle\EventListener\OrderWebhookListener
         arguments:
             - '@oro_message_queue.client.message_producer'
         tags:
+            - { name: doctrine.orm.entity_listener, entity: 'Oro\Bundle\OrderBundle\Entity\Order', event: postPersist }
             - { name: doctrine.orm.entity_listener, entity: 'Oro\Bundle\OrderBundle\Entity\Order', event: postUpdate }
