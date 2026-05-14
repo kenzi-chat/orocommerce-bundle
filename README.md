@@ -136,7 +136,6 @@ The bundle defines parameters in both `system_configuration` and `website_config
 ### Standalone (recommended for development)
 
 ```bash
-cd platforms/orocommerce
 composer install
 vendor/bin/phpunit
 ```
@@ -197,3 +196,16 @@ composer lint:fix      # Fix code style
 composer analyze       # Static analysis (phpstan)
 composer test          # Run tests (phpunit)
 ```
+
+## Releases
+
+Customer releases are native `v*` tags from this repository. Release automation
+must validate the exact tag commit before publishing a GitHub release or relying
+on Packagist ingestion.
+
+If `composer.json` contains a `version` field, the tag version without the `v`
+prefix must match it. If no `version` field is present, Packagist derives the
+version from the tag.
+
+Before customer release, verify Packagist resolves
+`kenzi-chat/orocommerce-bundle` from this repository.

@@ -1,10 +1,14 @@
 .distignore
+.git/
 .gitignore
 .github/
 .php-cs-fixer.cache
 .php-cs-fixer.php
 .phpunit.cache/
+AGENTS.md
 CLAUDE.md
+SECURITY.md
 phpstan.neon
 phpunit.xml
 tests/
+vendor/
