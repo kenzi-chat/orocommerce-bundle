@@ -44,6 +44,9 @@ class OrderWebhookListener
         'sourceEntityClass',
         'sourceEntityId',
         'sourceEntityIdentifier',
+        // Oro 6.0 enum fields — real columns (AbstractEnumValue), direct changeset entries.
+        // On 6.1 these moved to serialized_data; the direct check is a harmless no-op.
+        'internal_status',
         // Associations — changeset uses property name.
         // Note: in-place address edits are tracked on OrderAddress, not Order.
         'customer',

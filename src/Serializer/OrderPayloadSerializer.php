@@ -8,6 +8,7 @@ use Kenzi\OroCommerceBundle\Application\ApplicationUrlResolver;
 use Oro\Bundle\AttachmentBundle\Manager\AttachmentManager;
 use Oro\Bundle\CustomerBundle\Entity\Customer;
 use Oro\Bundle\CustomerBundle\Entity\CustomerUser;
+use Oro\Bundle\EntityExtendBundle\EntityPropertyInfo;
 use Oro\Bundle\OrderBundle\Entity\Order;
 use Oro\Bundle\OrderBundle\Entity\OrderAddress;
 use Oro\Bundle\OrderBundle\Entity\OrderLineItem;
@@ -246,8 +247,17 @@ class OrderPayloadSerializer
         return (string) $internalStatus->getId();
     }
 
+    /**
+     * Oro 6.1 added a dedicated shippingStatus extend field on Order.
+     * On 6.0 the field does not exist — shipping info lives in internal_status instead.
+     * Returns null when the field is absent so the consumer can fall back to internal_status.
+     */
     private function resolveShippingStatus(Order $order): ?string
     {
+        if (!EntityPropertyInfo::methodExists($order, 'getShippingStatus')) {
+            return null;
+        }
+
         $shippingStatus = $order->getShippingStatus();
 
         if ($shippingStatus === null) {
