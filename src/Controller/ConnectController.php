@@ -59,14 +59,10 @@ class ConnectController
     #[CsrfProtection]
     public function connect(Request $request): JsonResponse
     {
-        try {
-            $data = json_decode($request->getContent(), associative: true, flags: JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return new JsonResponse(['error' => 'Invalid JSON'], 422);
-        }
+        $data = json_decode($request->getContent(), associative: true);
 
         if (!\is_array($data)) {
-            return new JsonResponse(['error' => 'Body must be a JSON object'], 422);
+            return $this->failure('Connect request was not valid.');
         }
 
         $sharedSecret = trim((string) ($data['shared_secret'] ?? ''));
@@ -77,7 +73,7 @@ class ConnectController
             || !\str_starts_with($sharedSecret, 'ss_')
             || $workspaceId === ''
             || !\is_array($grants)) {
-            return new JsonResponse(['error' => 'Missing required fields'], 422);
+            return $this->failure('Connect request is missing required fields.');
         }
 
         // Keep only string entries — defends against array_values returning
@@ -115,10 +111,7 @@ class ConnectController
                 || !$this->encryptionKeysChecker->isPublicKeyExist()) {
                 $this->logger->error('OAuth2 encryption keys missing — cannot mint client');
 
-                return new JsonResponse(
-                    ['error' => 'Unable to create OAuth credentials. The server\'s OAuth2 encryption keys have not been generated.'],
-                    500
-                );
+                return $this->failure('Unable to create OAuth credentials. The server\'s OAuth2 encryption keys have not been generated.');
             }
 
             try {
@@ -132,7 +125,7 @@ class ConnectController
                 ]);
 
                 // Static body — the logger has the detail; don't leak internals to the wire.
-                return new JsonResponse(['error' => 'OAuth client creation failed'], 500);
+                return $this->failure('OAuth client creation failed.');
             }
 
             // Persist the client identifier before the PATCH so that disconnect
@@ -152,18 +145,24 @@ class ConnectController
                 'error' => $e->getMessage(),
             ]);
 
-            return new JsonResponse(['error' => 'Configure request failed'], 502);
+            return $this->failure('Configure request failed.');
         }
 
-        return $this->forward($response);
+        if ($response->getStatusCode() === 200) {
+            return new JsonResponse(['ok' => true]);
+        }
+
+        $body = json_decode($response->getContent(throw: false), true) ?? [];
+
+        return $this->failure('Configure request was rejected.', $body);
     }
 
     /**
      * Fetch the current integration projection from Kenzi.
      *
-     * Returns 404 when the bundle has no stored secret — there is no
-     * connection to query yet, so the JS short-circuits to the connect
-     * button without an outbound HTTP call.
+     * Returns ok: false when no shared secret is stored — there is no
+     * connection to query yet. The JS short-circuits to the connect
+     * button without making an outbound HTTP call.
      */
     #[Route(path: '/integration', name: 'kenzi_integration', methods: ['GET'])]
     public function integration(): JsonResponse
@@ -171,7 +170,7 @@ class ConnectController
         $secret = $this->getConfig(Configuration::PARAM_NAME_SHARED_SECRET);
 
         if (!\is_string($secret) || $secret === '') {
-            return new JsonResponse(['error' => 'Not connected'], 404);
+            return $this->failure('No connection established.');
         }
 
         try {
@@ -181,10 +180,18 @@ class ConnectController
                 'error' => $e->getMessage(),
             ]);
 
-            return new JsonResponse(['error' => 'Integration request failed'], 502);
+            return $this->failure('Integration request failed.');
         }
 
-        return $this->forward($response, ['Cache-Control' => 'no-store']);
+        $body = json_decode($response->getContent(throw: false), true) ?? [];
+
+        $result = $response->getStatusCode() === 200
+            ? new JsonResponse(['ok' => true] + $body)
+            : $this->failure('Integration request was rejected.', $body);
+
+        $result->headers->set('Cache-Control', 'no-store');
+
+        return $result;
     }
 
     /**
@@ -259,22 +266,17 @@ class ConnectController
     }
 
     /**
-     * Pass an upstream Kenzi response straight through to the browser.
-     *
-     * Uses `JsonResponse(..., json: true)` so the original JSON bytes are
-     * preserved verbatim — no decode/encode roundtrip, so key order and
-     * slash escaping match what Kenzi sent.
-     *
-     * @param array<string, string> $extraHeaders
+     * @param array<string, mixed> $apiResponse
      */
-    private function forward(ResponseInterface $response, array $extraHeaders = []): JsonResponse
+    private function failure(string $errorMessage, array $apiResponse = []): JsonResponse
     {
-        $body = $response->getContent(throw: false);
-        $statusCode = $response->getStatusCode();
+        $consoleError = $apiResponse['error'] ?? $errorMessage;
 
-        $headers = ['Content-Type' => 'application/json'] + $extraHeaders;
-
-        return new JsonResponse($body, $statusCode, $headers, json: true);
+        return new JsonResponse([
+            'ok' => false,
+            'error' => $errorMessage,
+            'consoleError' => $consoleError,
+        ]);
     }
 
     /**

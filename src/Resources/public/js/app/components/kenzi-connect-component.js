@@ -70,7 +70,7 @@ define(function(require) {
 
             try {
                 const result = await this._fetch('GET', this.bootstrap.endpoints.integration);
-                this._render(connectionState(result.status, result.body), result.body);
+                this._render(connectionState(result.body), result.body);
             } catch (err) {
                 console.error('Kenzi Connect: integration GET failed', err);
                 this._render('disconnected', null);
@@ -149,7 +149,7 @@ define(function(require) {
                     grants: payload.grants
                 });
 
-                if (connectResult.status !== 200) {
+                if (!connectResult.body || !connectResult.body.ok) {
                     this._reportError(connectResult, 'kenzi_oro_commerce.connect.error.store_failed');
                     this._render('incomplete', null);
                     return;
@@ -158,7 +158,7 @@ define(function(require) {
                 // /connect succeeded — proceed to /configure.
                 const configureResult = await this._fetch('POST', this.bootstrap.endpoints.configure);
 
-                if (configureResult.status !== 200) {
+                if (!configureResult.body || !configureResult.body.ok) {
                     this._reportError(configureResult, 'kenzi_oro_commerce.connect.error.configure_failed');
                     this._render('incomplete', null);
                     return;
@@ -191,7 +191,7 @@ define(function(require) {
             modal.on('ok', async () => {
                 try {
                     const result = await this._fetch('POST', this.bootstrap.endpoints.disconnect);
-                    if (result.status !== 200) {
+                    if (!result.body || !result.body.ok) {
                         this._reportError(result, 'kenzi_oro_commerce.connect.error.disconnect_failed');
                         return;
                     }
@@ -232,7 +232,7 @@ define(function(require) {
 
         /**
          * POST/GET to the given URL with an optional JSON body. Returns a
-         * Promise that resolves with `{ status, body }` regardless of HTTP
+         * Promise that resolves with `{ body }` regardless of HTTP
          * status — `body` is the parsed JSON response, or `null` if the
          * response wasn't JSON-decodable.
          */
@@ -250,7 +250,7 @@ define(function(require) {
 
             return new Promise(function(resolve) {
                 $.ajax(options).done(function(data, _textStatus, jqXHR) {
-                    resolve({ status: jqXHR.status, body: data });
+                    resolve({ body: data });
                 }).fail(function(jqXHR) {
                     let parsed = null;
                     try {
@@ -258,21 +258,19 @@ define(function(require) {
                     } catch (err) {
                         parsed = null;
                     }
-                    resolve({ status: jqXHR.status, body: parsed });
+                    resolve({ body: parsed });
                 });
             });
         },
 
         _reportError: function(result, messageKey) {
-            const serverError = result && result.body && typeof result.body.error === 'string'
-                ? result.body.error
-                : null;
+            const body = result && result.body;
 
-            if (serverError) {
-                console.error('Kenzi Connect [' + messageKey + ']', serverError);
+            if (body && typeof body.consoleError === 'string') {
+                console.error('Kenzi Connect [' + messageKey + ']', body.consoleError);
             }
 
-            this._flashError(serverError || __(messageKey));
+            this._flashError(body && typeof body.error === 'string' ? body.error : __(messageKey));
         },
 
         _flashError: function(message) {
@@ -308,19 +306,18 @@ define(function(require) {
      * Pure projection of the GET /integration response → view name.
      *
      * Three outcomes:
-     *   - non-200            → 'disconnected'. Per product: any non-200
-     *                          means there is no working integration on
+     *   - ok: false          → 'disconnected'. No working integration on
      *                          Kenzi's side, so let the user start fresh.
-     *   - 200 + both flags   → 'connected'.
-     *   - 200 + missing flag → 'incomplete'.
+     *   - ok: true + both flags   → 'connected'.
+     *   - ok: true + missing flag → 'incomplete'.
      *
      * `disconnected` is also short-circuited in `_renderInitial` when
      * `secret_exists` is false (skips the HTTP call). So the JS reaches
      * `disconnected` via two paths — the short-circuit and this projection.
      */
-    function connectionState(httpStatus, body) {
-        if (httpStatus !== 200) return 'disconnected';
-        if (body && body.configured && body.claimed) return 'connected';
+    function connectionState(body) {
+        if (!body || !body.ok) return 'disconnected';
+        if (body.configured && body.claimed) return 'connected';
         return 'incomplete';
     }
 

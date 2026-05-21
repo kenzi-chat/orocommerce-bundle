@@ -14,6 +14,7 @@ use Oro\Bundle\OAuth2ServerBundle\Security\EncryptionKeysExistenceChecker;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -80,29 +81,29 @@ final class ConnectControllerTest extends TestCase
 
     // ─── connect ─────────────────────────────────────────────────────
 
-    public function testConnectReturns422WhenBodyInvalidJson(): void
+    public function testConnectReturnsFailureWhenBodyInvalidJson(): void
     {
         $response = $this->controller->connect(new Request([], [], [], [], [], [], 'not json'));
-        $this->assertSame(422, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
-    public function testConnectReturns422WhenRequiredFieldMissing(): void
+    public function testConnectReturnsFailureWhenRequiredFieldMissing(): void
     {
         $response = $this->controller->connect($this->jsonRequest([
             'workspace_id' => 'ws_1',
             'grants' => ['commerce'],
         ]));
-        $this->assertSame(422, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
-    public function testConnectReturns422WhenSharedSecretLacksPrefix(): void
+    public function testConnectReturnsFailureWhenSharedSecretLacksPrefix(): void
     {
         $response = $this->controller->connect($this->jsonRequest([
             'shared_secret' => 'bad_prefix_abc',
             'workspace_id' => 'ws_1',
             'grants' => ['commerce'],
         ]));
-        $this->assertSame(422, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
     public function testConnectWritesThreeKeysAndFlushesOnce(): void
@@ -195,31 +196,7 @@ final class ConnectControllerTest extends TestCase
         $this->assertConfigWasSet(Configuration::PARAM_NAME_OAUTH_CLIENT_ID, 'oauth_id_42');
     }
 
-    public function testConfigureDoesNotStoreOAuthClientIdWhenCommerceGrantAbsent(): void
-    {
-        $this->stubGrants(['support']);
-        $this->stubAppBaseUrl('https://app.kenzi.test');
-        $this->stubSecret('sec_abc');
-        $this->stubResolverUrls();
-
-        $this->oauthClientFactory->expects($this->never())->method('create');
-
-        $this->httpClient->method('request')
-            ->willReturn($this->responseMock(200, '{"configured":true,"claimed":false}'));
-
-        $this->controller->configure();
-
-        $oauthClientIdKey = Configuration::getConfigKeyByName(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
-        foreach ($this->configSetCalls as $call) {
-            $this->assertNotSame(
-                $oauthClientIdKey,
-                $call['key'],
-                'oauth_client_id must not be written when commerce grant is absent'
-            );
-        }
-    }
-
-    public function testConfigureSkipsOAuthMintWhenCommerceGrantAbsent(): void
+    public function testConfigureSkipsOAuthBranchWhenCommerceGrantAbsent(): void
     {
         $this->stubGrants(['support']);
         $this->stubAppBaseUrl('https://app.kenzi.test');
@@ -249,12 +226,19 @@ final class ConnectControllerTest extends TestCase
             )
             ->willReturn($this->responseMock(200, '{"configured":true,"claimed":false}'));
 
-        $response = $this->controller->configure();
+        $this->controller->configure();
 
-        $this->assertSame(200, $response->getStatusCode());
+        $oauthClientIdKey = Configuration::getConfigKeyByName(Configuration::PARAM_NAME_OAUTH_CLIENT_ID);
+        foreach ($this->configSetCalls as $call) {
+            $this->assertNotSame(
+                $oauthClientIdKey,
+                $call['key'],
+                'oauth_client_id must not be written when commerce grant is absent'
+            );
+        }
     }
 
-    public function testConfigureReturns500WhenOAuthMintThrows(): void
+    public function testConfigureReturnsFailureWhenOAuthMintThrows(): void
     {
         $this->stubGrants(['commerce']);
         $this->stubAppBaseUrl('https://app.kenzi.test');
@@ -268,10 +252,10 @@ final class ConnectControllerTest extends TestCase
 
         $response = $this->controller->configure();
 
-        $this->assertSame(500, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
-    public function testConfigureReturns500WhenEncryptionKeysMissing(): void
+    public function testConfigureReturnsFailureWhenEncryptionKeysMissing(): void
     {
         $this->stubGrants(['commerce']);
 
@@ -293,10 +277,10 @@ final class ConnectControllerTest extends TestCase
 
         $response = $controller->configure();
 
-        $this->assertSame(500, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
-    public function testConfigureForwardsKenziStatusVerbatim(): void
+    public function testConfigureWrapsUpstreamFailureInOkResponse(): void
     {
         $this->stubGrants([]);
         $this->stubAppBaseUrl('https://app.kenzi.test');
@@ -304,20 +288,18 @@ final class ConnectControllerTest extends TestCase
         $this->stubResolverUrls();
 
         $this->httpClient->method('request')
-            ->willReturn($this->responseMock(422, '{"configured":false,"errors":["bad"]}'));
+            ->willReturn($this->responseMock(422, '{"error":"invalid_attributes"}'));
 
         $response = $this->controller->configure();
 
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertJsonStringEqualsJsonString(
-            '{"configured":false,"errors":["bad"]}',
-            $response->getContent()
-        );
+        $this->assertOkResponse($response, false);
+        $body = json_decode($response->getContent(), true);
+        $this->assertSame('invalid_attributes', $body['consoleError']);
     }
 
     // ─── integration ─────────────────────────────────────────────────
 
-    public function testIntegrationReturns404WhenNoSecret(): void
+    public function testIntegrationReturnsFailureWhenNoSecret(): void
     {
         $this->stubSecret('');
 
@@ -325,10 +307,10 @@ final class ConnectControllerTest extends TestCase
 
         $response = $this->controller->integration();
 
-        $this->assertSame(404, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
-    public function testIntegrationGetsAndForwardsBody(): void
+    public function testIntegrationGetsAndWrapsInOkResponse(): void
     {
         $this->stubSecret('sec_abc');
         $this->stubAppBaseUrl('https://app.kenzi.test');
@@ -348,13 +330,14 @@ final class ConnectControllerTest extends TestCase
 
         $response = $this->controller->integration();
 
-        $this->assertSame(200, $response->getStatusCode());
-        // Symfony's JsonResponse may augment Cache-Control with `private` —
-        // we only care that `no-store` is present.
+        $this->assertOkResponse($response, true);
+        $body = json_decode($response->getContent(), true);
+        $this->assertTrue($body['configured']);
+        $this->assertTrue($body['claimed']);
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
 
-    public function testIntegrationReturns502OnTransportFailure(): void
+    public function testIntegrationReturnsFailureOnTransportFailure(): void
     {
         $this->stubSecret('sec_abc');
         $this->stubAppBaseUrl('https://app.kenzi.test');
@@ -364,7 +347,7 @@ final class ConnectControllerTest extends TestCase
 
         $response = $this->controller->integration();
 
-        $this->assertSame(502, $response->getStatusCode());
+        $this->assertOkResponse($response, false);
     }
 
     // ─── disconnect ──────────────────────────────────────────────────
@@ -533,5 +516,14 @@ final class ConnectControllerTest extends TestCase
             $this->configResetCalls,
             "Expected config reset for {$paramName} was not called"
         );
+    }
+
+    private function assertOkResponse(JsonResponse $response, bool $expectedOk): void
+    {
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getContent(), true);
+        $this->assertIsArray($body);
+        $this->assertArrayHasKey('ok', $body);
+        $this->assertSame($expectedOk, $body['ok']);
     }
 }
